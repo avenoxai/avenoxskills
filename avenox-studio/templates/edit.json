@@ -1,0 +1,16 @@
+{
+  "_note": "Template edit-list for mltgen.py (Avenox Studio). Seconds in/out/dur; mltgen converts to frames and writes absolute paths. The KEY upgrade vs legacy: graphics are HyperFrames-rendered animated MP4 clips ('type':'clip'), not static PNG slides. Run: python3 scripts/mltgen.py edit.json project.mlt --base <job-dir>",
+  "profile": "atsc_1080p_60",
+  "fps": 60,
+  "width": 1920,
+  "height": 1080,
+  "title": "<Job Title> — edit",
+  "video": [
+    { "type": "clip",  "file": "graphics/intro.mp4",      "in": 0.0, "out": 4.0, "_": "HyperFrames animated title (was a static slide)" },
+    { "type": "clip",  "file": "cut/screen_cut.mp4",      "in": 0.0, "out": 42.5, "_": "auto-editor silence-cut talking/screen segment" },
+    { "type": "clip",  "file": "graphics/point_01.mp4",   "in": 0.0, "out": 6.0, "_": "HyperFrames motion-graphic explainer beat" },
+    { "type": "clip",  "file": "cut/screen_cut.mp4",      "in": 42.5, "out": 95.0 },
+    { "type": "slide", "file": "graphics/quote_static.png","dur": 5.0, "_": "static PNG still allowed when motion isn't needed" }
+  ],
+  "audio": { "file": "audio/music.mp3", "gain": 0.15 }
+}

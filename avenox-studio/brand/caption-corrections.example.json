@@ -1,0 +1,18 @@
+{
+  "_note": "ASR + brand spelling fixes applied to transcripts and captions after transcription. Copy to caption-corrections.json and grow it over time — every time you catch a mangled term in a caption, add it here so it never costs you twice.",
+  "version": 1,
+  "lang": "<your-lang-code>",
+
+  "brand_canonical": [
+    "YourBrand", "YourProduct", "Claude", "Claude Code", "Anthropic", "HyperFrames"
+  ],
+
+  "_replace_note": "Left side = what the ASR actually produced (lowercase). Right side = canonical spelling. Whisper-family models reliably mangle product names and homophones — 'Claude' becomes 'Cloud', 'CLAUDE.md' becomes 'Cloud.md', version numbers become nonsense.",
+  "replace": {
+    "cloud code": "Claude Code",
+    "cloud.md": "CLAUDE.md",
+    "hyper frames": "HyperFrames",
+    "hyperframe": "HyperFrames",
+    "anthropic ai": "Anthropic"
+  }
+}

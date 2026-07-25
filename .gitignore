@@ -1,0 +1,13 @@
+.DS_Store
+*.log
+
+# user-supplied, never committed
+skills/avenox-thumbnail/assets/*.png
+skills/avenox-thumbnail/assets/logos/
+avenox-studio/brand/frame.md
+avenox-studio/brand/caption-corrections.json
+skills/gptpro/bundles.conf
+gptpro-bundles/
+
+# local handoff artifacts
+gptpro/

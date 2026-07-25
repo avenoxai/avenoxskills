@@ -1,0 +1,22 @@
+{
+  "_note": "Technical preset for YouTube long-form. Read by mltgen.py / vrender.sh / graphics skills. Style (colors, type) lives in brand/frame.md, NOT here.",
+  "id": "youtube-16x9",
+  "format": { "width": 1920, "height": 1080, "fps": 60, "mlt_profile": "atsc_1080p_60", "aspect": "16:9" },
+  "render": {
+    "draft":  { "vcodec": "h264_videotoolbox", "bitrate": "14M", "acodec": "aac", "ab": "256k", "note": "fast Apple-Silicon hardware encode for preview" },
+    "master": { "vcodec": "libx264", "crf": 18, "preset": "slow", "acodec": "aac", "ab": "256k", "pix_fmt": "yuv420p", "note": "crisp final; CRF 18 holds up on code and text" }
+  },
+  "audio": { "music_gain": 0.15, "sidechain_duck": true, "target_loudness_lufs": -14 },
+  "captions": {
+    "engine": "local-mlx-whisper",
+    "model": "mlx-community/whisper-large-v3-turbo",
+    "lang": "<your-lang-code>",
+    "format": "srt",
+    "burn_in": false,
+    "corrections": "../caption-corrections.json",
+    "note": "YouTube uses .srt as CC, not burned in."
+  },
+  "graphics": { "engine": "hyperframes", "frame_spec": "../frame.md", "safe_margin_px": 96, "output": "mp4" },
+  "finishing": "hybrid",
+  "working_dir": "$STUDIO_JOBS/<job>/  (LOCAL — never inside a cloud-synced folder)"
+}
