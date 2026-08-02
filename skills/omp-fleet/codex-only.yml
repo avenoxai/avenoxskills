@@ -1,0 +1,49 @@
+# omp-fleet — per-run config overlay.
+#
+# Load with:  omp --config ~/.claude/skills/omp-fleet/codex-only.yml ...
+#
+# Purpose: guarantee every model call in a lane is billed to YOUR OpenAI Codex
+# subscription — never a metered aggregator. This is a per-run overlay; it does
+# NOT mutate ~/.omp/agent/config.yml, so your interactive setup is untouched.
+#
+# Adjust the model ids below if you're on a different plan or tier.
+
+# 1. Close the paid escape hatches.
+#    omp's retry.modelFallback defaults to TRUE, so a rate-limited or erroring
+#    lane can silently re-route to whatever other provider keys you have
+#    configured. On an unattended fleet that spends real money outside your plan.
+disabledProviders:
+  - openrouter
+  - opencode-go
+retry:
+  modelFallback: false
+  usageAwareFallback: false
+
+# 2. Pin every role to a fully-qualified id.
+#    Format is provider/model:thinking. The provider prefix is what stops fuzzy
+#    matching from resolving a bare "gpt-5.6-sol" to an aggregator's
+#    identically-named — but separately metered — listing.
+modelRoles:
+  default: openai-codex/gpt-5.6-sol:xhigh
+  slow: openai-codex/gpt-5.6-sol:xhigh
+  smol: openai-codex/gpt-5.6-luna:xhigh
+
+# 3. Cheap subagents read, expensive subagents decide.
+#    The cheap tier measured 25x less per token, so recon roles go there and
+#    judgement roles stay on the strong model.
+task:
+  agentModelOverrides:
+    scout: openai-codex/gpt-5.6-luna:xhigh
+    librarian: openai-codex/gpt-5.6-luna:xhigh
+    sonic: openai-codex/gpt-5.6-luna:xhigh
+    reviewer: openai-codex/gpt-5.6-sol:xhigh
+    security-reviewer: openai-codex/gpt-5.6-sol:xhigh
+    designer: openai-codex/gpt-5.6-sol:xhigh
+  # omp's default is 32. Lower it when several lanes run at once — each omp
+  # process already carries a ~1.7GB baseline before subagents.
+  maxConcurrency: 12
+
+# 4. An unattended lane must never block on an approval prompt.
+#    Drop this if a human is watching and wants to approve tool calls.
+tools:
+  approvalMode: yolo
