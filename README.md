@@ -84,7 +84,8 @@ Varies by skill; each `SKILL.md` states its own.
 
 - `codex-fleet` — Codex CLI 0.128+, authenticated
 - `omp-fleet` — `omp` (`@oh-my-pi/pi-coding-agent`), authenticated against a
-  provider; budget ~1.7GB RAM per concurrent lane
+  provider; budget ~0.5GB RAM per concurrent lane bare, ~1.7GB with a typical
+  MCP set auto-discovered
 - `gptpro` — `zip`, `rsync`
 - video skills — macOS (hardware encode, `mlx-whisper` on Apple Silicon),
   `ffmpeg`, `python3`, MLT/`melt`, Node. Most work on Linux with `libx264` and a
@@ -99,8 +100,10 @@ that cost real hours:
 - `auto-editor` v29 leaks the last `--cut-out` range as a positional input file.
   Use ffmpeg's `select` filter for content cuts.
 - Codex's greedy `-i` parse eats your prompt unless you put `--` before it.
-- `omp` looks like the lightweight harness and is the opposite: ~1700MB per
-  lane against Codex's ~108MB. Size fleets from the measurement, not the vibe.
+- An `omp` lane measures ~1700MB against a Codex lane's ~108MB — but ~75% of
+  that is MCP servers omp auto-discovers and boots *per lane*, not the harness
+  (~460MB). Every `npx`-launched MCP server also keeps a resident `npm exec`
+  parent, so you pay ~50% extra per server for nothing.
 - `omp` has no `exec` subcommand — non-interactive is `-p`. And its model ids
   fuzzy-match, so an unpinned lane can answer from a metered aggregator
   instead of your subscription.

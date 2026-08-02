@@ -176,30 +176,53 @@ For write isolation you can also try omp's built-in `task.isolation` (`mode: apf
 
 ## Part 5 — GOTCHAS
 
-### omp is NOT the lightweight option — it is ~15× heavier than Codex
+### An omp lane costs ~1.7GB — and ~75% of that is MCP servers, not omp
 
-This is the single most counter-intuitive fact about omp, and it inverts the obvious fleet-sizing intuition. Measured peak RSS across the full process tree, same prompt, one lane each:
+Measured peak RSS across the full process tree, one lane, trivial prompt: **~1700 MB.** For comparison a `codex exec` lane measured ~108 MB. But that headline number is misleading in *both* directions, and the breakdown is what you actually need:
 
-| runtime | peak tree RSS |
+| process | RSS |
 |---|---|
-| `codex exec` lane | **~108 MB** |
-| `omp -p` lane | **~1700 MB** |
+| `bun` — **the omp harness itself** | **~330–460 MB** |
+| Claude Code MCP server (project) | ~150 MB |
+| `firecrawl-mcp` + its `npm exec` parent | ~134 + ~96 MB |
+| `mcp-server-supabase` + parent | ~107 + ~93 MB |
+| `context7-mcp` **×2** + parents | ~100 + ~98 + ~95 + ~93 MB |
+| plugin MCP server | ~79 MB |
 
-Codex ships a Rust binary; omp is a large JavaScript bundle on the Bun runtime, and the heap dominates. RSS overcounts shared pages and this is one machine with one prompt — but a ~15× gap is not measurement noise.
+**omp boots every MCP server it can discover, on every launch.** It imports the Claude Code ecosystem wholesale — global, project, *and* plugin MCP configs. Three compounding wastes:
 
-**Consequences for fleet sizing:**
+1. **The `npx` double-cost.** Every `npx`-launched MCP server keeps a resident `npm exec` parent process alongside the real server — roughly **+50% memory per server for nothing**.
+2. **Duplicate servers.** Two `context7-mcp` instances ran simultaneously from different npx cache entries (one pinned `@latest`, one not) — ~380MB for one server's worth of capability.
+3. **Per-lane duplication.** Every lane spawns its *own* full copy of the set. Four lanes is four MCP fleets. This, not the harness, is what makes omp fleets expensive.
 
-- The `codex-fleet` rule of thumb (~20 concurrent lanes) does **not** transfer. On a 32GB box, ~20 omp lanes is ~34GB and will swap or get OOM-killed. Budget **~1.7GB per lane** and size from there — realistically **4–8 concurrent omp lanes** on a 16–32GB machine.
-- If your constraint is memory, **`codex exec` is the correct harness**, not omp. Reach for omp when the constraint is *cost* (the 25× tier) or when you specifically want in-process subagent fan-out.
-- **Prefer Mode 1 over Mode 3** when you can: one omp process running 12 internal subagents shares a single runtime heap, where 12 separate `omp -p` lanes pay the ~1.7GB baseline twelve times over.
-- Measure on your own box before sizing a big fleet:
-  ```bash
-  omp -p --no-session "<some real task>" & PID=$!
-  while kill -0 $PID 2>/dev/null; do
-    ps -Ao rss=,pid=,ppid= | awk -v r=$PID '$2==r||$3==r{s+=$1}END{print s/1024" MB"}'
-    sleep 2
-  done
-  ```
+**So the honest harness-to-harness comparison is ~460MB (omp) vs ~108MB (codex) — about 4×, not 15×.** The `codex-fleet` spawn template passes `-c mcp_servers={}`, which is exactly why Codex lanes measure so small; it's a fair-fight difference in *default configuration*, not runtime weight.
+
+**Fleet sizing:**
+
+- Budget from what you actually measure on your box, not from this table — your MCP set is yours.
+- With MCP left on, the `codex-fleet` ~20-lane rule does **not** transfer: ~20 omp lanes is ~34GB. Realistically **4–8 concurrent** on a 16–32GB machine.
+- **Prefer Mode 1 (in-process subagents) over Mode 3 (multi-process lanes).** One omp process running 12 subagents pays the MCP tax *once*; 12 separate lanes pay it twelve times. This is the single biggest memory lever available.
+- **`--profile <name>` is the clean lane isolation.** A fresh profile doesn't inherit the discovered MCP set, so lanes start lean. It isolates auth too, so log in once per profile before using it in a fleet (`omp --profile fleetlane` interactively, then reuse it).
+- Things that do **not** work, so don't waste time: `mcpServers: {}` in a `--config` overlay is a no-op (overlays deep-merge, so an empty map merges nothing), `mcp.enableProjectConfig: false` doesn't stop globally-discovered servers, and `--no-extensions` / `--no-lsp` change nothing (LSP is not the cost).
+
+Measure your own tree — sum the **descendant closure**, not just the root pid, or you'll under-report by more than half:
+
+```bash
+omp -p --no-session "<some real task>" & ROOT=$!
+while kill -0 $ROOT 2>/dev/null; do
+  ps -Ao rss=,pid=,ppid= | awk -v root=$ROOT '
+    {rss[$2]=$1; pp[$2]=$3; pid[NR]=$2; n=NR}
+    END{d[root]=1; ch=1
+      while(ch){ch=0; for(i=1;i<=n;i++){p=pid[i]; if(!d[p]&&d[pp[p]]){d[p]=1;ch=1}}}
+      s=0; for(i=1;i<=n;i++) if(d[pid[i]]) s+=rss[pid[i]]
+      print s/1024" MB"}'
+  sleep 2
+done
+```
+
+Swap `rss=,pid=,ppid=` for `rss=,pid=,ppid=,args=` and print the argv to see exactly which servers your lanes are paying for. Worth doing once — you may find, as above, that you're running a server twice.
+
+> **While you're in there:** check what your MCP servers put in their argv. One of the servers observed here passes a live API access token as a command-line argument, which makes it readable by any process on the box via `ps`. That's a property of that server, not of omp, but omp launching it per-lane multiplies the exposure.
 
 ### Everything else
 
@@ -235,7 +258,7 @@ Codex ships a Rust binary; omp is a large JavaScript bundle on the Bun runtime, 
 
 | Your constraint | Reach for |
 |---|---|
-| Memory / many concurrent lanes | **`codex exec`** — ~108MB vs ~1700MB per lane |
+| Memory / many concurrent lanes | **`codex exec`** — ~108MB vs ~460MB bare, ~1700MB once omp's discovered MCP servers boot |
 | Cost on high-volume reading | **omp** — the 25× cheap tier |
 | One task, many internal readers | **omp** — in-process subagent fan-out |
 | Hard per-lane timebox | **omp** — `--max-time` |
