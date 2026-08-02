@@ -29,6 +29,7 @@ video trio, which shares `avenox-studio/` (see below).
 | Skill | What it does |
 |---|---|
 | **[codex-fleet](skills/codex-fleet)** | Standalone Codex CLI runner + fleet orchestrator. General `codex exec` tasks, `gpt-image-2` image generation, and parallel multi-lane fleets with worktree isolation. Dependency-free — no control plane required. |
+| **[omp-fleet](skills/omp-fleet)** | The same job for [Oh My Pi](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent) (`omp`) — a second coding-agent CLI onto the same Codex subscription. Provider pinning so a lane can't fall through to a metered aggregator, a 25×-cheaper model tier for recon, and in-process subagent fan-out. Includes the measured RAM comparison that decides which harness you actually want. |
 | **[fable-orchestration](skills/fable-orchestration)** | Delegation policy for a multi-model stack: when the main loop runs on a scarce top-tier model, what goes to cheaper sub-agents, and what goes to Codex lanes. Routes on *difficulty*, not just task type. |
 
 ### External model review
@@ -82,6 +83,8 @@ Two skills expect files this repo deliberately doesn't ship:
 Varies by skill; each `SKILL.md` states its own.
 
 - `codex-fleet` — Codex CLI 0.128+, authenticated
+- `omp-fleet` — `omp` (`@oh-my-pi/pi-coding-agent`), authenticated against a
+  provider; budget ~1.7GB RAM per concurrent lane
 - `gptpro` — `zip`, `rsync`
 - video skills — macOS (hardware encode, `mlx-whisper` on Apple Silicon),
   `ffmpeg`, `python3`, MLT/`melt`, Node. Most work on Linux with `libx264` and a
@@ -96,6 +99,11 @@ that cost real hours:
 - `auto-editor` v29 leaks the last `--cut-out` range as a positional input file.
   Use ffmpeg's `select` filter for content cuts.
 - Codex's greedy `-i` parse eats your prompt unless you put `--` before it.
+- `omp` looks like the lightweight harness and is the opposite: ~1700MB per
+  lane against Codex's ~108MB. Size fleets from the measurement, not the vibe.
+- `omp` has no `exec` subcommand — non-interactive is `-p`. And its model ids
+  fuzzy-match, so an unpinned lane can answer from a metered aggregator
+  instead of your subscription.
 - Parallel `gpt-image-2` jobs share an image cache and can return duplicate
   renders — md5 the batch, re-fire dupes solo.
 - SVG `feTurbulence` grain must use a fixed seed or rendered frames flicker.
