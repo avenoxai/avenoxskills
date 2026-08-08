@@ -9,5 +9,5 @@ avenox-studio/brand/caption-corrections.json
 skills/gptpro/bundles.conf
 gptpro-bundles/
 
-# local handoff artifacts
-gptpro/
+# local handoff artifacts (output dirs, not the skill dir)
+/gptpro/
