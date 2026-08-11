@@ -1,6 +1,17 @@
 ---
 name: codex-fleet
-description: Standalone Codex CLI runner + fleet orchestrator. Does THREE things and always EXECUTES them (never just describes): (1) general code tasks via `codex exec`, (2) high-quality image generation via Codex's built-in `gpt-image-2` tool, and (3) parallel multi-lane fleets — spawning many `codex exec` delegates at once with worktree isolation. Defaults locked: model `gpt-6-astra`, reasoning `high` for hard/precision lanes and `medium` for routine lanes (xhigh/max only for an explicitly heavy lane), `--skip-git-repo-check` always. For multiple independent jobs, fire them ALL in parallel — compute is not the constraint, throughput is. Triggers on: "use codex", "run codex", "codex exec", "imagegen", "generate image", "make image", "render this", "ask codex to ...", "have codex ...", "spawn a fleet", "parallel codex", any image-asset request (icons/sigils/banners/portraits/backgrounds/sprites/UI assets/mockups/photoreal/etc.), and any request to delegate code-level work to Codex.
+description: >-
+  Standalone Codex CLI runner + fleet orchestrator. Does THREE things and always EXECUTES them (never
+  just describes): (1) general code tasks via `codex exec`, (2) high-quality image generation via
+  Codex's built-in `gpt-image-2` tool, and (3) parallel multi-lane fleets — spawning many `codex exec`
+  delegates at once with worktree isolation. Defaults locked: model `gpt-6-astra`, reasoning `high`
+  for hard/precision lanes and `medium` for routine lanes (xhigh/max only for an explicitly heavy
+  lane), `--skip-git-repo-check` always. For multiple independent jobs, fire them ALL in parallel —
+  compute is not the constraint, throughput is. Triggers on: "use codex", "run codex", "codex exec",
+  "imagegen", "generate image", "make image", "render this", "ask codex to ...", "have codex ...",
+  "spawn a fleet", "parallel codex", any image-asset request
+  (icons/sigils/banners/portraits/backgrounds/sprites/UI assets/mockups/photoreal/etc.), and any
+  request to delegate code-level work to Codex.
 ---
 
 # Codex Fleet — Standalone Action Runner

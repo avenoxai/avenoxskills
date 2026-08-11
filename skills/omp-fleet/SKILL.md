@@ -1,6 +1,14 @@
 ---
 name: omp-fleet
-description: Standalone runner + fleet orchestrator for Oh My Pi (`omp`), a coding-agent CLI that reaches your existing OpenAI Codex subscription through a different harness. Does THREE things and always EXECUTES them (never just describes): (1) general code tasks via `omp -p`, (2) cheap high-volume context gathering on the 25x-cheaper model tier, and (3) parallel fan-out — both in-process subagents and multi-process lanes. Defaults locked: provider pinned to your own subscription, never a metered fallback. Triggers on: "use omp", "run omp", "omp exec", "oh my pi", "ask omp to ...", "spawn an omp fleet", "parallel omp", "cheap recon pass", and any request to delegate code-level work to omp.
+description: >-
+  Standalone runner + fleet orchestrator for Oh My Pi (`omp`), a coding-agent CLI that reaches your
+  existing OpenAI Codex subscription through a different harness. Does THREE things and always
+  EXECUTES them (never just describes): (1) general code tasks via `omp -p`, (2) cheap high-volume
+  context gathering on the 25x-cheaper model tier, and (3) parallel fan-out — both in-process
+  subagents and multi-process lanes. Defaults locked: provider pinned to your own subscription, never
+  a metered fallback. Triggers on: "use omp", "run omp", "omp exec", "oh my pi", "ask omp to ...",
+  "spawn an omp fleet", "parallel omp", "cheap recon pass", and any request to delegate code-level
+  work to omp.
 ---
 
 # OMP Fleet — Standalone Action Runner

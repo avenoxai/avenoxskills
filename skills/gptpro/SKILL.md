@@ -1,6 +1,11 @@
 ---
 name: gptpro
-description: Export a monorepo into review-ready zip bundles for a non-agentic frontier model (GPT Pro on the ChatGPT web UI, or any chat model with file upload) — node_modules-free, secret-free, split by subsystem so a model with no shell and a bounded context can navigate the codebase a part at a time. Use for packaging a repo for external LLM review, audit, or architecture feedback. Pairs with the `gptpro-handoff` workflow skill.
+description: >-
+  Export a monorepo into review-ready zip bundles for a non-agentic frontier model (GPT Pro on the
+  ChatGPT web UI, or any chat model with file upload) — node_modules-free, secret-free, split by
+  subsystem so a model with no shell and a bounded context can navigate the codebase a part at a time.
+  Use for packaging a repo for external LLM review, audit, or architecture feedback. Pairs with the
+  `gptpro-handoff` workflow skill.
 ---
 
 # GPTPro Export
