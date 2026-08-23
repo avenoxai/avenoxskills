@@ -31,6 +31,28 @@ If the user's request is "use codex to X" or "run codex on X", run `codex exec .
 - Codex CLI 0.128+ installed and authenticated (`codex --version`). Reasoning tiers `low`/`medium`/`high`/`xhigh` require 0.128+.
 - For the image-gen **CLI fallback** and `gpt-image-1.5` transparency path only: `OPENAI_API_KEY`. The built-in `image_gen` tool uses your Codex subscription and needs no key.
 
+## Platform notes
+
+Everything in this file is written as bash and assumes a Unix-shaped shell. That holds on
+macOS and Linux natively, and on Windows through Git Bash — `/tmp`, `~`, `find -mmin`,
+`2>/dev/null` and `$CODEX_HOME` all resolve there, so the commands run as written.
+
+Two macOS binaries used below have no Windows equivalent. This skill ships replacements:
+
+| Need | macOS | Windows |
+|---|---|---|
+| Stop the machine sleeping mid-fleet | `caffeinate -i` | `scripts/Invoke-KeepAwake.ps1` |
+| Downscale / centre-crop a render | `sips -z` / `sips -c` | `scripts/Resize-Image.ps1` |
+
+Both replacements are plain PowerShell against the .NET base library
+(`SetThreadExecutionState`, `System.Drawing`) — no install, no ImageMagick, no persistent
+system setting changed. Run either with `-?` for full help. They are additive: every macOS
+instruction in this file is unchanged, and macOS users should keep using `caffeinate` and
+`sips`.
+
+Windows also needs `pwsh` (PowerShell 7+) on PATH for the two scripts. The rest of the skill
+needs only Codex CLI and Git Bash.
+
 ## Defaults (locked in)
 
 | Setting | Value | When to override |
@@ -291,7 +313,7 @@ Popular sizes (use these unless there's a reason not to):
 | 4K portrait | `2160x3840` |
 | Auto | `auto` |
 
-Square is fastest. Don't ask for tiny output (e.g. `256x256`) — the tool will reject it (below min-pixels). Generate at a supported size and downscale with `sips` afterwards.
+Square is fastest. Don't ask for tiny output (e.g. `256x256`) — the tool will reject it (below min-pixels). Generate at a supported size and downscale with `sips` afterwards (Windows: `pwsh -NoProfile -File skills/codex-fleet/scripts/Resize-Image.ps1 -Path in.png -Out out.png -Width 512`).
 
 ### Quality (gpt-image-2)
 
@@ -428,7 +450,7 @@ python "$IMAGE_GEN" generate \
 | "I generated it but couldn't save to that path" | Codex refused `cp` because directive said "no drawing library" too strictly | Add `You MAY use shell commands (cp, mv) to relocate` to the directive |
 | Image saved but green/checker background instead of transparent | Expected — gpt-image-2 doesn't do native alpha. You asked for transparency. | Run the chroma-key helper at `~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py` |
 | Empty cache directory after run | Codex refused or errored silently | Check the log file (`/tmp/codex-X.log`) — image gen may have hit content policy or rate limit |
-| Wrong aspect ratio | Tool didn't honor exact dimensions | Re-prompt with one of the popular sizes (`1024x1024`, `1536x1024`, etc.); crop with `sips` if needed |
+| Wrong aspect ratio | Tool didn't honor exact dimensions | Re-prompt with one of the popular sizes (`1024x1024`, `1536x1024`, etc.); crop with `sips` if needed, or `scripts/Resize-Image.ps1 -Crop` on Windows |
 | Multiple assets in one prompt — only some land on disk | Codex generated all but only copied first | Split into separate `codex exec` calls (recommended). Don't use `n` for distinct assets — `n` is for variants of one prompt |
 | "size must be auto or WIDTHxHEIGHT, multiples of 16" error from CLI | Bad size for gpt-image-2 | Both edges must be multiples of 16, total pixels in [655,360 .. 8,294,400], aspect ≤ 3:1, max edge ≤ 3840 |
 | "transparent backgrounds are not supported in gpt-image-2" | Tried `--background transparent` with default model | Either chroma-key workflow, or `--model gpt-image-1.5 --background transparent --output-format png` (after user confirms) |
@@ -547,6 +569,14 @@ caffeinate -i codex exec --skip-git-repo-check --full-auto \
 Fire it with `run_in_background: true`. The brief is the lane's **entire contract** — it must state the goal, the exact files the lane OWNS, the files it must NOT touch (and which sibling owns them), the acceptance check, and how to report done/failed. A delegate can't see your conversation; everything it needs goes in the brief.
 
 > **`caffeinate -i` (macOS).** A lid-close or idle sleep silently kills a mid-flight lane (you'll see ~5KB of output, zero edits). Wrap every spawn in `caffeinate -i` so the machine stays awake for the fleet. A respawn with the same brief is safe when `git status` shows no partial work.
+>
+> **Windows equivalent.** `caffeinate` does not exist there. Start the bundled sentinel once, in the background, *before* spawning lanes — the sleep block is process-scoped, so wrapping each lane would release it the moment that lane exits:
+>
+> ```bash
+> pwsh -NoProfile -File skills/codex-fleet/scripts/Invoke-KeepAwake.ps1 -Minutes 90 &
+> ```
+>
+> It prints `KEEPAWAKE_ON until=... pid=<PID>`. Kill that PID when the fleet is done, or let it expire.
 
 ### Fleet patterns (3–20 lanes)
 
