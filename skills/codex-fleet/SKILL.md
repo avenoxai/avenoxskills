@@ -1,6 +1,6 @@
 ---
 name: codex-fleet
-description: Standalone Codex CLI runner + fleet orchestrator. Does THREE things and always EXECUTES them (never just describes): (1) general code tasks via `codex exec`, (2) high-quality image generation via Codex's built-in `gpt-image-2` tool, and (3) parallel multi-lane fleets — spawning many `codex exec` delegates at once with worktree isolation. Defaults locked: model `gpt-5.6-sol`, reasoning `high`, `--skip-git-repo-check` always. For multiple independent jobs, fire them ALL in parallel — compute is not the constraint, throughput is. Triggers on: "use codex", "run codex", "codex exec", "imagegen", "generate image", "make image", "render this", "ask codex to ...", "have codex ...", "spawn a fleet", "parallel codex", any image-asset request (icons/sigils/banners/portraits/backgrounds/sprites/UI assets/mockups/photoreal/etc.), and any request to delegate code-level work to Codex.
+description: Standalone Codex CLI runner + fleet orchestrator. Does THREE things and always EXECUTES them (never just describes): (1) general code tasks via `codex exec`, (2) high-quality image generation via Codex's built-in `gpt-image-2` tool, and (3) parallel multi-lane fleets — spawning many `codex exec` delegates at once with worktree isolation. Defaults locked: model `gpt-6-astra`, reasoning `high` for hard/precision lanes and `medium` for routine lanes (xhigh/max only for an explicitly heavy lane), `--skip-git-repo-check` always. For multiple independent jobs, fire them ALL in parallel — compute is not the constraint, throughput is. Triggers on: "use codex", "run codex", "codex exec", "imagegen", "generate image", "make image", "render this", "ask codex to ...", "have codex ...", "spawn a fleet", "parallel codex", any image-asset request (icons/sigils/banners/portraits/backgrounds/sprites/UI assets/mockups/photoreal/etc.), and any request to delegate code-level work to Codex.
 ---
 
 # Codex Fleet — Standalone Action Runner
@@ -28,22 +28,22 @@ If the user's request is "use codex to X" or "run codex on X", run `codex exec .
 
 ## Prerequisites
 
-- Codex CLI 0.128+ installed and authenticated (`codex --version`). Reasoning tiers `low`/`medium`/`high`/`xhigh` require 0.128+.
+- Codex CLI installed and authenticated (`codex --version`). Reasoning tiers `low`/`medium`/`high`/`xhigh` need 0.128+; `max` and `ultra` need `gpt-6-astra` and a current CLI (0.144+ is known good).
 - For the image-gen **CLI fallback** and `gpt-image-1.5` transparency path only: `OPENAI_API_KEY`. The built-in `image_gen` tool uses your Codex subscription and needs no key.
 
 ## Defaults (locked in)
 
 | Setting | Value | When to override |
 |---|---|---|
-| Model | `gpt-5.6-sol` | `-m <model>` only if user specifies |
-| Reasoning effort | `high` | `xhigh` ONLY on explicit user request ("use xhigh", "max reasoning", "deep"); `medium`/`low` for cheap mechanical lanes |
+| Model | `gpt-6-astra` | `-m <model>` only if user specifies. History: gpt-5.5 → gpt-5.6-sol → gpt-6-astra (2026-09-05) |
+| Reasoning effort | `high` for hard/precision lanes, `medium` for routine lanes | `xhigh`/`max` ONLY for an explicitly heavy lane ("use xhigh", "max reasoning", "deep"); `low` for cheap read lanes; `ultra` is opt-in because it enables OpenAI's automatic task delegation |
 | Service tier | **standard — fast is OFF** | see the note below; opt in per-call only |
 | Sandbox | `read-only` | `workspace-write` for edits; `danger-full-access` for image gen or network (ask first) |
 | `--skip-git-repo-check` | always | always |
 | Stderr | suppressed (`2>/dev/null`) | only show when debugging |
 | `--color never` | recommended | when you need to grep stdout cleanly |
 
-Reasoning levels available (codex 0.128+): `low`, `medium`, `high`, `xhigh`. Lean toward `high`. Don't downgrade to "save effort" unless the lane is genuinely mechanical.
+Reasoning levels available on `gpt-6-astra`: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. astra is a frontier-tier model, so `medium`/`high` is enough for most lanes; reserve `xhigh`/`max` for a lane whose brief justifies it. The model's own cache default is `medium`, so always pass the effort explicitly.
 
 > **Fast tier is OFF by default — do not add it.** `-c service_tier=fast -c fast_default_opt_out=false` buys ~1.5× speed at ~2.5× rate cost. That trade is wrong for how this skill is used: everything here is background-first and parallel, so nobody is staring at a single lane's latency, and burning 2.5× rate on twenty lanes drains your limits for no wall-clock gain. Standard tier gives you the same quality plus rate-limit headroom. Every example in this file omits it deliberately. Opt in per-call only when a human is actively blocked on one foreground result — never for fleets, never as a global default.
 
@@ -55,7 +55,7 @@ Reasoning levels available (codex 0.128+): `low`, `medium`, `high`, `xhigh`. Lea
 
 ```bash
 codex exec --skip-git-repo-check \
-  -m gpt-5.6-sol \
+  -m gpt-6-astra \
   -c model_reasoning_effort=high \
   --sandbox read-only \
   "<PROMPT>" 2>/dev/null
@@ -70,7 +70,7 @@ codex exec --skip-git-repo-check \
 | Network access or broad system access | `--sandbox danger-full-access --full-auto` (confirm with user first) |
 
 For a working dir other than CWD: add `-C <DIR>`.
-For escalated reasoning: replace `model_reasoning_effort=high` with `=xhigh`.
+For escalated reasoning: replace `model_reasoning_effort=high` with `=xhigh` or `=max` (explicitly heavy lanes only).
 
 ### Background-first invocation pattern
 
@@ -78,7 +78,7 @@ Run any non-trivial codex task in the background. Don't block the main thread:
 
 ```
 Bash tool call:
-  command: codex exec --skip-git-repo-check -m gpt-5.6-sol \
+  command: codex exec --skip-git-repo-check -m gpt-6-astra \
            -c model_reasoning_effort=high \
            --sandbox read-only \
            "Review src/foo.ts for race conditions and report findings." 2>/dev/null
@@ -215,7 +215,7 @@ That last line about `cp/mv` is essential — without it, Codex over-interprets 
 
 ```bash
 codex exec --skip-git-repo-check --ephemeral -s danger-full-access \
-  -m gpt-5.6-sol \
+  -m gpt-6-astra \
   -c model_reasoning_effort=high \
   --ignore-rules \
   --color never \
@@ -224,8 +224,8 @@ codex exec --skip-git-repo-check --ephemeral -s danger-full-access \
 
 Flag breakdown:
 - `-s danger-full-access` — required to write files. Image-gen tool needs this sandbox level to copy the result to disk.
-- `-m gpt-5.6-sol` — agent model that decides to call `image_gen`. Best prompt-following for image workflows.
-- `-c model_reasoning_effort=high` — default per skill policy. `xhigh` only on explicit request.
+- `-m gpt-6-astra` — agent model that decides to call `image_gen`. Best prompt-following for image workflows.
+- `-c model_reasoning_effort=high` — default per skill policy. `xhigh`/`max` only on explicit request.
 - `--ephemeral` — fresh session each call, no history pollution between image jobs.
 - `--ignore-rules` — skips repo-rule scanning (avoids policy hits on prompts).
 - `--skip-git-repo-check` — runs anywhere.
@@ -438,7 +438,7 @@ python "$IMAGE_GEN" generate \
 
 ```bash
 codex exec --skip-git-repo-check --ephemeral -s danger-full-access \
-  -m gpt-5.6-sol \
+  -m gpt-6-astra \
   -c model_reasoning_effort=high \
   --ignore-rules \
   --color never \
@@ -529,8 +529,8 @@ A **fleet** is N `codex exec` delegates working at once. Each lane is a plain ba
 
 | Setting | Default | Why |
 |---|---|---|
-| Model | `gpt-5.6-sol` (`-m gpt-5.6-sol`) | The fleet workhorse. Never silently downgrade. |
-| Reasoning | `high` (`-c model_reasoning_effort=high`) | `xhigh` for genuinely hard lanes (gnarly refactors, debugging); `medium` for grunt/mechanical lanes. |
+| Model | `gpt-6-astra` (`-m gpt-6-astra`) | The fleet workhorse since 2026-09-05 (replaced `gpt-5.6-sol`). Never silently downgrade. |
+| Reasoning | `high` for hard/precision lanes, `medium` for routine lanes (`-c model_reasoning_effort=high`) | `xhigh`/`max` only for an explicitly heavy lane (gnarly refactors, deep debugging, gate review); `low` for cheap read lanes. astra is frontier-tier, so medium/high carries most work. |
 | Sandbox | `--full-auto` for write lanes; `--sandbox read-only` for read/review lanes | Write lanes need to edit their claimed files. Only grant what the lane needs. |
 | Working dir | `-C <lane dir>` | Anchor each lane in its claimed directory or worktree. |
 
@@ -539,7 +539,7 @@ A **fleet** is N `codex exec` delegates working at once. Each lane is a plain ba
 ```bash
 caffeinate -i codex exec --skip-git-repo-check --full-auto \
   -C <LANE_DIR> \
-  -m gpt-5.6-sol \
+  -m gpt-6-astra \
   -c model_reasoning_effort=high \
   "<SELF-CONTAINED LANE BRIEF>" > /tmp/lane-A.log 2>&1
 ```
@@ -552,7 +552,7 @@ Fire it with `run_in_background: true`. The brief is the lane's **entire contrac
 
 - **Stagger the spawns** (2–5s apart): firing every lane's first model call simultaneously is a thundering herd. In a live 23-lane run, 2 lanes wedged on dead connections at startup and sat silent for 30 minutes. The stagger costs a minute; a zombie costs half an hour.
 - **Real ceiling ≈ 20 concurrent `codex exec` processes** — that's RAM + OpenAI rate limits, not orchestration. Beyond that, tier and queue.
-- **Tier the lanes**: quick read/explore lanes → `medium` read-only; standard write lanes → `high` full-auto; deep refactor / gnarly debugging / review-gate lanes → `xhigh`.
+- **Tier the lanes**: quick read/explore lanes → `low`/`medium` read-only; standard write lanes → `high` full-auto; deep refactor / gnarly debugging / review-gate lanes → `max` (`xhigh` if you want a cheaper heavy tier). One model id for the whole fleet; the tier is the effort, not the model.
 - **Read lanes stay read-only**: give review/analysis lanes `--sandbox read-only` so they physically cannot edit. Escalate to a write lane if edits are needed — don't tell a read lane to patch.
 - **Liveness check from the surface side**: a codex lane whose log file hasn't grown for many minutes with zero tool calls is dead regardless of the process table. Respawn it with the same brief.
 - **Completions are claims, not evidence.** "Succeeded" from a lane means it *thinks* it's done. Run the lane's acceptance check yourself (targeted typecheck / lint / tests in its dir) before integrating.

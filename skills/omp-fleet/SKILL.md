@@ -39,14 +39,14 @@ omp exec "your prompt"        # WRONG — no such subcommand
 | Setting | Value | When to override |
 |---|---|---|
 | Provider | **your own subscription, pinned** | never — see the provider lock below |
-| Executor model | `openai-codex/gpt-5.6-sol:xhigh` | a cheaper tier for mechanical lanes |
-| Recon model | `openai-codex/gpt-5.6-luna:xhigh` | when the lane must *decide*, not just read |
+| Executor model | `openai-codex/gpt-6-astra:high` (`:medium` for routine lanes) | `:xhigh`/`:max` only for an explicitly heavy lane; the model replaced `gpt-5.6-sol` on 2026-09-05 |
+| Recon model | `openai-codex/gpt-5.6-luna:medium` | switch to the executor model when the lane must *decide*, not just read |
 | Config overlay | `--config <skill dir>/codex-only.yml` | always pass it on unattended lanes |
 | Approvals | `--approval-mode yolo` | drop it if a human is watching and wants prompts |
 | Tools | **all of them, always** | never pass `--no-tools` / `--no-lsp` / `--no-skills` |
 | Timebox | `--max-time 45m` | tune per lane; always set something |
 
-Model selector syntax is **`provider/model:thinking`** — e.g. `openai-codex/gpt-5.6-sol:xhigh`. Thinking levels: `low`, `medium`, `high`, `xhigh`, `max`.
+Model selector syntax is **`provider/model:thinking`** — e.g. `openai-codex/gpt-6-astra:high`. Thinking levels: `low`, `medium`, `high`, `xhigh`, `max`. Default to `high` for hard lanes and `medium` for routine ones; astra is frontier-tier, so `xhigh`/`max` is for explicitly heavy lanes only.
 
 ---
 
@@ -55,15 +55,15 @@ Model selector syntax is **`provider/model:thinking`** — e.g. `openai-codex/gp
 `omp` aggregates a *lot* of providers. Two of its defaults combine into a real hazard:
 
 - `retry.modelFallback` defaults to **`true`**, so a rate-limited or erroring lane can re-route mid-run.
-- Model ids **fuzzy-match**. Ask for `gpt-5.6-sol` and you may get OpenRouter's `openai/gpt-5.6-sol` — a *different, metered* route — instead of the one on your subscription.
+- Model ids **fuzzy-match**. Ask for a bare `gpt-5.6-sol` (or any bare id) and you may get OpenRouter's identically-named `openai/gpt-5.6-sol` — a *different, metered* route — instead of the one on your subscription.
 
 If you have any metered provider key configured (OpenRouter, OpenCode, a gateway), an unattended fleet can quietly spend real money outside your plan. Two independent guards — use both:
 
 **1. Always use fully-qualified model ids.** The `provider/` prefix is what defeats fuzzy matching:
 
 ```bash
-omp -p --model openai-codex/gpt-5.6-sol:xhigh "..."   # pinned
-omp -p --model gpt-5.6-sol "..."                      # ambiguous — don't
+omp -p --model openai-codex/gpt-6-astra:high "..."   # pinned
+omp -p --model gpt-6-astra "..."                      # ambiguous — don't
 ```
 
 **2. Ship a per-run config overlay.** `codex-only.yml` next to this skill disables the metered providers and turns fallback off **for that run only**, without touching the user's real `~/.omp/agent/config.yml`:
@@ -92,7 +92,7 @@ Measured on one machine, same prompt, same harness, both on the Codex subscripti
 | `gpt-5.6-sol` | **$5.00** | **$30.00** | ~$0.15 |
 | `gpt-5.6-luna` | **$0.20** | **$1.20** | ~$0.006 |
 
-**Exactly 25×** on both input and output.
+**Exactly 25×** on both input and output. (Measured on `gpt-5.6-sol`, the executor model at the time; `gpt-6-astra` replaced it on 2026-09-05 and has not been re-measured here — treat the ratio as indicative, not exact.)
 
 The number that matters more than the ratio: **omp sends ~30K input tokens of system prompt and tool schemas before your prompt even starts.** On the expensive tier that's ~$0.15 *per turn* just to say hello. Short prompts are not cheap prompts — model choice dominates completely.
 
@@ -110,7 +110,7 @@ Do not run a 20-lane recon sweep on the expensive tier. That is the mistake this
 ```bash
 omp -p \
   --config ~/.claude/skills/omp-fleet/codex-only.yml \
-  --model openai-codex/gpt-5.6-sol:xhigh \
+  --model openai-codex/gpt-6-astra:high \
   --approval-mode yolo \
   --cwd <LANE_DIR> \
   --max-time 45m \
@@ -161,7 +161,7 @@ Best for: "map this subsystem", "find every caller of X", "inventory the drift a
 ### Mode 2 — `omp cleanse` (paved parallel fixer)
 
 ```bash
-omp cleanse -n 8 -m openai-codex/gpt-5.6-sol:xhigh -t
+omp cleanse -n 8 -m openai-codex/gpt-6-astra:high -t
 ```
 
 Detects project diagnostics and fixes them with **file-disjoint** weighted subagents; `-t` also runs configured test suites. Disjointness is already solved for you — try this before hand-rolling a lint/diagnostic fleet. Dry-run on a scratch branch the first time.

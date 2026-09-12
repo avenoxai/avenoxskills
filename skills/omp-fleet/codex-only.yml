@@ -21,24 +21,24 @@ retry:
 
 # 2. Pin every role to a fully-qualified id.
 #    Format is provider/model:thinking. The provider prefix is what stops fuzzy
-#    matching from resolving a bare "gpt-5.6-sol" to an aggregator's
+#    matching from resolving a bare "gpt-6-astra" to an aggregator's
 #    identically-named — but separately metered — listing.
 modelRoles:
-  default: openai-codex/gpt-5.6-sol:xhigh
-  slow: openai-codex/gpt-5.6-sol:xhigh
-  smol: openai-codex/gpt-5.6-luna:xhigh
+  default: openai-codex/gpt-6-astra:high
+  slow: openai-codex/gpt-6-astra:high
+  smol: openai-codex/gpt-5.6-luna:medium
 
 # 3. Cheap subagents read, expensive subagents decide.
 #    The cheap tier measured 25x less per token, so recon roles go there and
 #    judgement roles stay on the strong model.
 task:
   agentModelOverrides:
-    scout: openai-codex/gpt-5.6-luna:xhigh
-    librarian: openai-codex/gpt-5.6-luna:xhigh
-    sonic: openai-codex/gpt-5.6-luna:xhigh
-    reviewer: openai-codex/gpt-5.6-sol:xhigh
-    security-reviewer: openai-codex/gpt-5.6-sol:xhigh
-    designer: openai-codex/gpt-5.6-sol:xhigh
+    scout: openai-codex/gpt-5.6-luna:medium
+    librarian: openai-codex/gpt-5.6-luna:medium
+    sonic: openai-codex/gpt-5.6-luna:medium
+    reviewer: openai-codex/gpt-6-astra:max
+    security-reviewer: openai-codex/gpt-6-astra:max
+    designer: openai-codex/gpt-6-astra:high
   # omp's default is 32. Lower it when several lanes run at once — each omp
   # process already carries a ~1.7GB baseline before subagents.
   maxConcurrency: 12

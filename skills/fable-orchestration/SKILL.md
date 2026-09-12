@@ -1,6 +1,6 @@
 ---
 name: fable-orchestration
-description: "Delegation policy for a multi-model agent stack where the main loop runs on a scarce top-tier model (e.g. Claude Fable) and cheaper/unlimited tiers do the mechanical work. The main loop owns architecture and judgment; sub-agents (Opus) and Codex lanes execute. Load whenever spawning sub-agents (Agent tool, Workflow agent() calls, codex fleets) or planning any delegation."
+description: "Delegation policy for a multi-model agent stack where the main loop runs on a scarce top-tier model (e.g. Claude Fable) and cheaper/unlimited tiers do the mechanical work. The main loop owns architecture and judgment; sub-agents (Opus) and Codex lanes (gpt-6-astra, a frontier-tier peer run at medium/high effort) execute. Load whenever spawning sub-agents (Agent tool, Workflow agent() calls, codex fleets) or planning any delegation."
 ---
 
 # Orchestration & delegation policy (scarce-top-tier stack)
@@ -24,7 +24,7 @@ a sub-agent.** Its tokens buy judgment, not throughput.
    hands-on over reflexive delegation while limits are healthy — delegation has
    its own overhead.
 2. **No mid-tiers.** Pick a small number of delegate tiers and stick to them.
-   In this stack: **Opus** (unlimited) and **Codex gpt-5.x** (via `codex exec`).
+   In this stack: **Opus** (unlimited) and **Codex gpt-6-astra** (via `codex exec`; history gpt-5.5 → gpt-5.6-sol → gpt-6-astra).
    Mixing in more tiers makes routing decisions unauditable.
 3. **The main loop keeps the big picture.** Architecture, specs,
    contract-sensitive design, subtle state machines, integration and conflict
@@ -33,9 +33,12 @@ a sub-agent.** Its tokens buy judgment, not throughput.
 
 ## Choosing the delegate
 
-- **Codex (`gpt-5.x`, xhigh reasoning effort) — the default for most high-level
-  tasks**, including substantial implementation lanes. It is an obsessive
-  instruction follower: nearly as capable as the scarce tier, but less
+- **Codex (`gpt-6-astra`, medium/high reasoning effort by default) — the default
+  for most high-level tasks**, including substantial implementation lanes. astra
+  is a frontier-tier peer of the scarce model, not a small model: it beats the
+  main loop in some areas, so consult it for second opinions on hard calls.
+  Reserve `xhigh`/`max` for an explicitly heavy lane, never as the reflex. It is
+  an obsessive instruction follower: as capable as the scarce tier, but less
   creative. It does not improvise well — it *executes*. Give it a carefully
   written, detailed, explicit spec and it will grind through it relentlessly
   and precisely. Use for: implementation lanes, migrations, refactors,
@@ -58,10 +61,11 @@ The routing axis is **difficulty**, not just recon-vs-execution.
 - **Simple, well-bounded work → Opus agents.** This includes light *execution*:
   templated UI ops, e2e clones of an existing pattern, features that ride an
   existing pipeline end-to-end. Opus is unlimited and copes with looser briefs.
-- **Hard or precision work → Codex xhigh lanes with a complete spec.** Core
+- **Hard or precision work → Codex `high` lanes with a complete spec** (`xhigh`/`max`
+  only when the brief justifies it). Core
   evaluator seams, security-critical strengthen-never-relax changes,
   correctness-sensitive paths, the largest surfaces.
-- **Gate-reviewer lanes stay on the highest Codex preset** regardless of the
+- **Gate-reviewer lanes stay on the highest Codex preset (`max`)** regardless of the
   size of what they're reviewing.
 
 When assigning fleet lanes, stamp the adapter per lane in the spec so the
