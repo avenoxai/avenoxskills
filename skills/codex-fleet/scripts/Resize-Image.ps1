@@ -49,20 +49,32 @@
 param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][string]$Out,
-    [int]$Width = 0,
-    [int]$Height = 0,
+    [ValidateRange(0, 32768)][int]$Width = 0,
+    [ValidateRange(0, 32768)][int]$Height = 0,
     [switch]$Crop
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $IsWindows) { throw 'This helper requires Windows and PowerShell 7+.' }
 if ($Width -le 0 -and $Height -le 0) { throw 'Supply -Width, -Height, or both.' }
 
+$sourcePath = (Resolve-Path -LiteralPath $Path).Path
+$outputPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
+if ([string]::Equals($sourcePath, $outputPath, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Source and destination must be different files.'
+}
+if ($Crop -and ($Width -eq 0 -or $Height -eq 0)) { throw '-Crop requires both -Width and -Height.' }
 Add-Type -AssemblyName System.Drawing
 
-$src = [System.Drawing.Image]::FromFile((Resolve-Path -LiteralPath $Path).Path)
+$src = [System.Drawing.Image]::FromFile($sourcePath)
 try {
-    if ($Width -le 0)  { $Width  = [int][Math]::Round($src.Width  * ($Height / $src.Height)) }
-    if ($Height -le 0) { $Height = [int][Math]::Round($src.Height * ($Width  / $src.Width)) }
+    if (-not $Crop) {
+        $scale = if ($Width -eq 0) { $Height / $src.Height }
+                 elseif ($Height -eq 0) { $Width / $src.Width }
+                 else { [Math]::Min($Width / $src.Width, $Height / $src.Height) }
+        $Width = [Math]::Max(1, [int][Math]::Round($src.Width * $scale))
+        $Height = [Math]::Max(1, [int][Math]::Round($src.Height * $scale))
+    }
 
     # Source rectangle. With -Crop, narrow it to the target aspect ratio about the centre.
     $sx = 0; $sy = 0; $sw = $src.Width; $sh = $src.Height
@@ -70,10 +82,10 @@ try {
         $targetRatio = $Width / $Height
         $sourceRatio = $src.Width / $src.Height
         if ($sourceRatio -gt $targetRatio) {
-            $sw = [int][Math]::Round($src.Height * $targetRatio)
+            $sw = [Math]::Max(1, [int][Math]::Round($src.Height * $targetRatio))
             $sx = [int][Math]::Round(($src.Width - $sw) / 2)
         } else {
-            $sh = [int][Math]::Round($src.Width / $targetRatio)
+            $sh = [Math]::Max(1, [int][Math]::Round($src.Width / $targetRatio))
             $sy = [int][Math]::Round(($src.Height - $sh) / 2)
         }
     }
@@ -102,7 +114,7 @@ try {
         } else {
             [System.Drawing.Imaging.ImageFormat]::Png
         }
-        $dst.Save($Out, $format)
+        $dst.Save($outputPath, $format)
     } finally { $dst.Dispose() }
 } finally { $src.Dispose() }
 

@@ -3,16 +3,16 @@
     Windows equivalent of macOS `caffeinate -i` — keeps the machine awake while a fleet runs.
 
 .DESCRIPTION
-    A lid-close or idle sleep silently kills a mid-flight `codex exec` lane: you get a few KB
+    Idle sleep can interrupt a mid-flight `codex exec` lane: you get a few KB
     of output and zero edits, with no error anywhere. macOS solves this by wrapping each spawn
     in `caffeinate -i`. Windows has no such binary, so this script holds the block instead.
 
     It sets ES_CONTINUOUS | ES_SYSTEM_REQUIRED via SetThreadExecutionState and keeps it for its
     own lifetime. Start it ONCE in the background before spawning lanes, rather than wrapping
-    each lane — the flag is process-scoped, so a wrapper would release it as soon as the
+    each lane — the flag is thread-scoped, so a wrapper would release it as soon as the
     wrapped command exits.
 
-    It does NOT keep the display on, and it does NOT change any persistent power setting.
+    It does NOT prevent explicit sleep or lid-close sleep, keep the display on, and it does NOT change any persistent power setting.
     When the process exits — timeout, Ctrl+C, or kill — Windows reverts to normal immediately.
 
 .PARAMETER Minutes
@@ -39,6 +39,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $IsWindows) { throw 'This helper requires Windows and PowerShell 7+.' }
 
 Add-Type -Namespace CodexFleet -Name Power -MemberDefinition @'
 [DllImport("kernel32.dll", SetLastError = true)]

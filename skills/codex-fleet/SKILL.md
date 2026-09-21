@@ -35,7 +35,7 @@ If the user's request is "use codex to X" or "run codex on X", run `codex exec .
 
 Everything in this file is written as bash and assumes a Unix-shaped shell. That holds on
 macOS and Linux natively, and on Windows through Git Bash — `/tmp`, `~`, `find -mmin`,
-`2>/dev/null` and `$CODEX_HOME` all resolve there, so the commands run as written.
+`2>/dev/null` and `$CODEX_HOME` all resolve there. Remove the macOS-only `caffeinate -i` prefix from each Windows spawn and start the sentinel below first. Linux users must also omit that prefix and supply their own sleep inhibitor if needed.
 
 Two macOS binaries used below have no Windows equivalent. This skill ships replacements:
 
@@ -91,7 +91,7 @@ codex exec --skip-git-repo-check \
 | Apply local edits | `--approve-for-me` (alone — do NOT add `--sandbox`/`-s`) |
 | Network access or broad system access | `--sandbox danger-full-access` (confirm with user first) |
 
-> **`--full-auto` no longer exists in current Codex CLI (verified on 0.153.x and 0.154.0).** Passing it fails immediately with `error: unexpected argument '--full-auto' found` and the lane exits without doing anything. Its replacement for write access is `--approve-for-me`, which on its own selects the workspace-write sandbox with automatic approvals. It is mutually exclusive with `--sandbox`/`-s` (`error: the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'`), so never combine them. If you are pinned to an older Codex that still has `--full-auto` and lacks `--approve-for-me`, use `--full-auto` instead.
+> **`--full-auto` no longer exists in current Codex CLI (reported on 0.153.x/0.154.0 and locally verified on 0.155.0).** Passing it fails immediately with `error: unexpected argument '--full-auto' found` and the lane exits without doing anything. Its replacement for write access is `--approve-for-me`, which on its own selects the workspace-write sandbox with automatic review of approval requests; a request can still be rejected. It is mutually exclusive with `--sandbox`/`-s` (`error: the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'`), so never combine them. If you are pinned to an older Codex that still has `--full-auto` and lacks `--approve-for-me`, use `--full-auto` instead.
 
 For a working dir other than CWD: add `-C <DIR>`.
 For escalated reasoning: replace `model_reasoning_effort=high` with `=xhigh` or `=max` (explicitly heavy lanes only).
@@ -570,13 +570,15 @@ caffeinate -i codex exec --skip-git-repo-check --approve-for-me \
 
 Fire it with `run_in_background: true`. The brief is the lane's **entire contract** — it must state the goal, the exact files the lane OWNS, the files it must NOT touch (and which sibling owns them), the acceptance check, and how to report done/failed. A delegate can't see your conversation; everything it needs goes in the brief.
 
-> **`caffeinate -i` (macOS).** A lid-close or idle sleep silently kills a mid-flight lane (you'll see ~5KB of output, zero edits). Wrap every spawn in `caffeinate -i` so the machine stays awake for the fleet. A respawn with the same brief is safe when `git status` shows no partial work.
+> **`caffeinate -i` (macOS).** Idle sleep can interrupt a mid-flight lane (you'll see ~5KB of output, zero edits). Wrap every spawn in `caffeinate -i` to inhibit idle sleep during the fleet; this does not guarantee operation with a closed lid. A respawn with the same brief is safe when `git status` shows no partial work.
 >
-> **Windows equivalent.** `caffeinate` does not exist there. Start the bundled sentinel once, in the background, *before* spawning lanes — the sleep block is process-scoped, so wrapping each lane would release it the moment that lane exits:
+> **Windows equivalent.** `caffeinate` does not exist there. Start the bundled sentinel once, in the background, *before* spawning lanes — the sleep block is thread-scoped, so wrapping each lane would release it the moment that lane exits:
 >
 > ```bash
 > pwsh -NoProfile -File skills/codex-fleet/scripts/Invoke-KeepAwake.ps1 -Minutes 90 &
 > ```
+>
+> The sentinel prevents idle sleep, not explicit sleep or closing the lid (see [Microsoft documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate)).
 >
 > It prints `KEEPAWAKE_ON until=... pid=<PID>`. Kill that PID when the fleet is done, or let it expire.
 
