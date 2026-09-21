@@ -31,6 +31,28 @@ If the user's request is "use codex to X" or "run codex on X", run `codex exec .
 - Codex CLI installed and authenticated (`codex --version`). Reasoning tiers `low`/`medium`/`high`/`xhigh` need 0.128+; `max` and `ultra` need `gpt-6-astra` and a current CLI (0.144+ is known good).
 - For the image-gen **CLI fallback** and `gpt-image-1.5` transparency path only: `OPENAI_API_KEY`. The built-in `image_gen` tool uses your Codex subscription and needs no key.
 
+## Platform notes
+
+Everything in this file is written as bash and assumes a Unix-shaped shell. That holds on
+macOS and Linux natively, and on Windows through Git Bash — `/tmp`, `~`, `find -mmin`,
+`2>/dev/null` and `$CODEX_HOME` all resolve there. Remove the macOS-only `caffeinate -i` prefix from each Windows spawn and start the sentinel below first. Linux users must also omit that prefix and supply their own sleep inhibitor if needed.
+
+Two macOS binaries used below have no Windows equivalent. This skill ships replacements:
+
+| Need | macOS | Windows |
+|---|---|---|
+| Stop the machine sleeping mid-fleet | `caffeinate -i` | `scripts/Invoke-KeepAwake.ps1` |
+| Downscale / centre-crop a render | `sips -z` / `sips -c` | `scripts/Resize-Image.ps1` |
+
+Both replacements are plain PowerShell against the .NET base library
+(`SetThreadExecutionState`, `System.Drawing`) — no install, no ImageMagick, no persistent
+system setting changed. Run either with `-?` for full help. They are additive: every macOS
+instruction in this file is unchanged, and macOS users should keep using `caffeinate` and
+`sips`.
+
+Windows also needs `pwsh` (PowerShell 7+) on PATH for the two scripts. The rest of the skill
+needs only Codex CLI and Git Bash.
+
 ## Defaults (locked in)
 
 | Setting | Value | When to override |
@@ -66,8 +88,10 @@ codex exec --skip-git-repo-check \
 | Use case | Flags |
 |---|---|
 | Read-only review / analysis / diagnosis (default) | `--sandbox read-only` |
-| Apply local edits | `--sandbox workspace-write --full-auto` |
-| Network access or broad system access | `--sandbox danger-full-access --full-auto` (confirm with user first) |
+| Apply local edits | `--approve-for-me` (alone — do NOT add `--sandbox`/`-s`) |
+| Network access or broad system access | `--sandbox danger-full-access` (confirm with user first) |
+
+> **`--full-auto` no longer exists in current Codex CLI (reported on 0.153.x/0.154.0 and locally verified on 0.155.0).** Passing it fails immediately with `error: unexpected argument '--full-auto' found` and the lane exits without doing anything. Its replacement for write access is `--approve-for-me`, which on its own selects the workspace-write sandbox with automatic review of approval requests; a request can still be rejected. It is mutually exclusive with `--sandbox`/`-s` (`error: the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'`), so never combine them. If you are pinned to an older Codex that still has `--full-auto` and lacks `--approve-for-me`, use `--full-auto` instead.
 
 For a working dir other than CWD: add `-C <DIR>`.
 For escalated reasoning: replace `model_reasoning_effort=high` with `=xhigh` or `=max` (explicitly heavy lanes only).
@@ -121,7 +145,7 @@ Codex runs on OpenAI's models with their own training cutoffs. Treat it as a pee
 ### Error handling
 
 - If `codex --version` or `codex exec` exits non-zero, stop and report. Do not retry blindly.
-- High-impact flags (`--full-auto`, `--sandbox danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`) require explicit user OK before first use in a session — after that you can keep using them within the same task scope.
+- High-impact flags (`--approve-for-me`, `--sandbox danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`) require explicit user OK before first use in a session — after that you can keep using them within the same task scope.
 
 ---
 
@@ -291,7 +315,7 @@ Popular sizes (use these unless there's a reason not to):
 | 4K portrait | `2160x3840` |
 | Auto | `auto` |
 
-Square is fastest. Don't ask for tiny output (e.g. `256x256`) — the tool will reject it (below min-pixels). Generate at a supported size and downscale with `sips` afterwards.
+Square is fastest. Don't ask for tiny output (e.g. `256x256`) — the tool will reject it (below min-pixels). Generate at a supported size and downscale with `sips` afterwards (Windows: `pwsh -NoProfile -File skills/codex-fleet/scripts/Resize-Image.ps1 -Path in.png -Out out.png -Width 512`).
 
 ### Quality (gpt-image-2)
 
@@ -428,7 +452,7 @@ python "$IMAGE_GEN" generate \
 | "I generated it but couldn't save to that path" | Codex refused `cp` because directive said "no drawing library" too strictly | Add `You MAY use shell commands (cp, mv) to relocate` to the directive |
 | Image saved but green/checker background instead of transparent | Expected — gpt-image-2 doesn't do native alpha. You asked for transparency. | Run the chroma-key helper at `~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py` |
 | Empty cache directory after run | Codex refused or errored silently | Check the log file (`/tmp/codex-X.log`) — image gen may have hit content policy or rate limit |
-| Wrong aspect ratio | Tool didn't honor exact dimensions | Re-prompt with one of the popular sizes (`1024x1024`, `1536x1024`, etc.); crop with `sips` if needed |
+| Wrong aspect ratio | Tool didn't honor exact dimensions | Re-prompt with one of the popular sizes (`1024x1024`, `1536x1024`, etc.); crop with `sips` if needed, or `scripts/Resize-Image.ps1 -Crop` on Windows |
 | Multiple assets in one prompt — only some land on disk | Codex generated all but only copied first | Split into separate `codex exec` calls (recommended). Don't use `n` for distinct assets — `n` is for variants of one prompt |
 | "size must be auto or WIDTHxHEIGHT, multiples of 16" error from CLI | Bad size for gpt-image-2 | Both edges must be multiples of 16, total pixels in [655,360 .. 8,294,400], aspect ≤ 3:1, max edge ≤ 3840 |
 | "transparent backgrounds are not supported in gpt-image-2" | Tried `--background transparent` with default model | Either chroma-key workflow, or `--model gpt-image-1.5 --background transparent --output-format png` (after user confirms) |
@@ -531,13 +555,13 @@ A **fleet** is N `codex exec` delegates working at once. Each lane is a plain ba
 |---|---|---|
 | Model | `gpt-6-astra` (`-m gpt-6-astra`) | The fleet workhorse since 2026-09-05 (replaced `gpt-5.6-sol`). Never silently downgrade. |
 | Reasoning | `high` for hard/precision lanes, `medium` for routine lanes (`-c model_reasoning_effort=high`) | `xhigh`/`max` only for an explicitly heavy lane (gnarly refactors, deep debugging, gate review); `low` for cheap read lanes. astra is frontier-tier, so medium/high carries most work. |
-| Sandbox | `--full-auto` for write lanes; `--sandbox read-only` for read/review lanes | Write lanes need to edit their claimed files. Only grant what the lane needs. |
+| Sandbox | `--approve-for-me` (alone, no `-s`) for write lanes; `--sandbox read-only` for read/review lanes | Write lanes need to edit their claimed files. Only grant what the lane needs. |
 | Working dir | `-C <lane dir>` | Anchor each lane in its claimed directory or worktree. |
 
 ### Spawn recipe (one lane)
 
 ```bash
-caffeinate -i codex exec --skip-git-repo-check --full-auto \
+caffeinate -i codex exec --skip-git-repo-check --approve-for-me \
   -C <LANE_DIR> \
   -m gpt-6-astra \
   -c model_reasoning_effort=high \
@@ -546,13 +570,23 @@ caffeinate -i codex exec --skip-git-repo-check --full-auto \
 
 Fire it with `run_in_background: true`. The brief is the lane's **entire contract** — it must state the goal, the exact files the lane OWNS, the files it must NOT touch (and which sibling owns them), the acceptance check, and how to report done/failed. A delegate can't see your conversation; everything it needs goes in the brief.
 
-> **`caffeinate -i` (macOS).** A lid-close or idle sleep silently kills a mid-flight lane (you'll see ~5KB of output, zero edits). Wrap every spawn in `caffeinate -i` so the machine stays awake for the fleet. A respawn with the same brief is safe when `git status` shows no partial work.
+> **`caffeinate -i` (macOS).** Idle sleep can interrupt a mid-flight lane (you'll see ~5KB of output, zero edits). Wrap every spawn in `caffeinate -i` to inhibit idle sleep during the fleet; this does not guarantee operation with a closed lid. A respawn with the same brief is safe when `git status` shows no partial work.
+>
+> **Windows equivalent.** `caffeinate` does not exist there. Start the bundled sentinel once, in the background, *before* spawning lanes — the sleep block is thread-scoped, so wrapping each lane would release it the moment that lane exits:
+>
+> ```bash
+> pwsh -NoProfile -File skills/codex-fleet/scripts/Invoke-KeepAwake.ps1 -Minutes 90 &
+> ```
+>
+> The sentinel prevents idle sleep, not explicit sleep or closing the lid (see [Microsoft documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate)).
+>
+> It prints `KEEPAWAKE_ON until=... pid=<PID>`. Kill that PID when the fleet is done, or let it expire.
 
 ### Fleet patterns (3–20 lanes)
 
 - **Stagger the spawns** (2–5s apart): firing every lane's first model call simultaneously is a thundering herd. In a live 23-lane run, 2 lanes wedged on dead connections at startup and sat silent for 30 minutes. The stagger costs a minute; a zombie costs half an hour.
 - **Real ceiling ≈ 20 concurrent `codex exec` processes** — that's RAM + OpenAI rate limits, not orchestration. Beyond that, tier and queue.
-- **Tier the lanes**: quick read/explore lanes → `low`/`medium` read-only; standard write lanes → `high` full-auto; deep refactor / gnarly debugging / review-gate lanes → `max` (`xhigh` if you want a cheaper heavy tier). One model id for the whole fleet; the tier is the effort, not the model.
+- **Tier the lanes**: quick read/explore lanes → `low`/`medium` read-only; standard write lanes → `high` `--approve-for-me`; deep refactor / gnarly debugging / review-gate lanes → `max` (`xhigh` if you want a cheaper heavy tier). One model id for the whole fleet; the tier is the effort, not the model.
 - **Read lanes stay read-only**: give review/analysis lanes `--sandbox read-only` so they physically cannot edit. Escalate to a write lane if edits are needed — don't tell a read lane to patch.
 - **Liveness check from the surface side**: a codex lane whose log file hasn't grown for many minutes with zero tool calls is dead regardless of the process table. Respawn it with the same brief.
 - **Completions are claims, not evidence.** "Succeeded" from a lane means it *thinks* it's done. Run the lane's acceptance check yourself (targeted typecheck / lint / tests in its dir) before integrating.
