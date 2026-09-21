@@ -82,7 +82,9 @@ Two skills expect files this repo deliberately doesn't ship:
 
 Varies by skill; each `SKILL.md` states its own.
 
-- `codex-fleet` — Codex CLI 0.128+, authenticated
+- `codex-fleet` — Codex CLI 0.128+, authenticated. Runs on macOS, Linux, and Windows
+  (via Git Bash); the two macOS-only helpers, `caffeinate` and `sips`, have bundled
+  PowerShell replacements in `skills/codex-fleet/scripts/` that need `pwsh` 7+
 - `omp-fleet` — `omp` (`@oh-my-pi/pi-coding-agent`), authenticated against a
   provider; budget ~0.5GB RAM per concurrent lane bare, ~1.7GB with a typical
   MCP set auto-discovered
