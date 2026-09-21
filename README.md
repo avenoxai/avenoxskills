@@ -19,8 +19,8 @@ git clone https://github.com/avenoxai/avenoxskills.git
 cp -R avenoxskills/skills/codex-fleet ~/.claude/skills/
 ```
 
-Or take just the one file you want — every skill is self-contained except the
-video trio, which shares `avenox-studio/` (see below).
+Copy the whole skill directory, including any `scripts/` and `references/`.
+The video trio also shares `avenox-studio/` (see below).
 
 ## The skills
 
@@ -31,7 +31,7 @@ video trio, which shares `avenox-studio/` (see below).
 | **[codex-fleet](skills/codex-fleet)** | Standalone Codex CLI runner + fleet orchestrator. General `codex exec` tasks, `gpt-image-2` image generation, and parallel multi-lane fleets with worktree isolation. Dependency-free — no control plane required. |
 | **[omp-fleet](skills/omp-fleet)** | The same job for [Oh My Pi](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent) (`omp`) — a second coding-agent CLI onto the same Codex subscription. Provider pinning so a lane can't fall through to a metered aggregator, a 25×-cheaper model tier for recon, and in-process subagent fan-out. Includes the measured RAM comparison that decides which harness you actually want. |
 | **[fable-orchestration](skills/fable-orchestration)** | Delegation policy for a multi-model stack: when the main loop runs on a scarce top-tier model, what goes to cheaper sub-agents, and what goes to Codex lanes. Routes on *difficulty*, not just task type. |
-| **[limit](skills/limit)** | Shows Claude and Codex subscription usage windows on one colored screen — live API/CodexBar first, cache/rollout fallback, loud staleness warnings — so an agent knows which pool to delegate to before it burns quota blind. Stdlib Python, no dependencies. |
+| **[limit](skills/limit)** | Shows Claude and Codex subscription usage windows on one colored screen — live API/CodexBar cache first, rollout fallback, loud staleness warnings — so an agent knows which pool to delegate to before it burns quota blind. Stdlib Python, no dependencies. |
 
 ### External model review
 
@@ -83,8 +83,8 @@ Two skills expect files this repo deliberately doesn't ship:
 
 Varies by skill; each `SKILL.md` states its own.
 
-- `codex-fleet` — Codex CLI 0.128+, authenticated. Runs on macOS, Linux, and Windows
-  (via Git Bash); the two macOS-only helpers, `caffeinate` and `sips`, have bundled
+- `codex-fleet` — Codex CLI 0.128+, authenticated. Uses bash recipes; Windows uses Git Bash. On Windows/Linux omit the
+  macOS-only `caffeinate` prefix; the two macOS-only helpers, `caffeinate` and `sips`, have bundled
   PowerShell replacements in `skills/codex-fleet/scripts/` that need `pwsh` 7+
 - `omp-fleet` — `omp` (`@oh-my-pi/pi-coding-agent`), authenticated against a
   provider; budget ~0.5GB RAM per concurrent lane bare, ~1.7GB with a typical

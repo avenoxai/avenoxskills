@@ -11,3 +11,7 @@ gptpro-bundles/
 
 # local handoff artifacts (output dirs, not the skill dir)
 /gptpro/
+
+# Python validation artifacts
+__pycache__/
+*.py[cod]
