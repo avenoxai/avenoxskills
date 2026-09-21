@@ -66,8 +66,10 @@ codex exec --skip-git-repo-check \
 | Use case | Flags |
 |---|---|
 | Read-only review / analysis / diagnosis (default) | `--sandbox read-only` |
-| Apply local edits | `--sandbox workspace-write --full-auto` |
-| Network access or broad system access | `--sandbox danger-full-access --full-auto` (confirm with user first) |
+| Apply local edits | `--approve-for-me` (alone — do NOT add `--sandbox`/`-s`) |
+| Network access or broad system access | `--sandbox danger-full-access` (confirm with user first) |
+
+> **`--full-auto` no longer exists in current Codex CLI (verified on 0.153.x and 0.154.0).** Passing it fails immediately with `error: unexpected argument '--full-auto' found` and the lane exits without doing anything. Its replacement for write access is `--approve-for-me`, which on its own selects the workspace-write sandbox with automatic approvals. It is mutually exclusive with `--sandbox`/`-s` (`error: the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'`), so never combine them. If you are pinned to an older Codex that still has `--full-auto` and lacks `--approve-for-me`, use `--full-auto` instead.
 
 For a working dir other than CWD: add `-C <DIR>`.
 For escalated reasoning: replace `model_reasoning_effort=high` with `=xhigh` or `=max` (explicitly heavy lanes only).
@@ -121,7 +123,7 @@ Codex runs on OpenAI's models with their own training cutoffs. Treat it as a pee
 ### Error handling
 
 - If `codex --version` or `codex exec` exits non-zero, stop and report. Do not retry blindly.
-- High-impact flags (`--full-auto`, `--sandbox danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`) require explicit user OK before first use in a session — after that you can keep using them within the same task scope.
+- High-impact flags (`--approve-for-me`, `--sandbox danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`) require explicit user OK before first use in a session — after that you can keep using them within the same task scope.
 
 ---
 
@@ -531,13 +533,13 @@ A **fleet** is N `codex exec` delegates working at once. Each lane is a plain ba
 |---|---|---|
 | Model | `gpt-6-astra` (`-m gpt-6-astra`) | The fleet workhorse since 2026-09-05 (replaced `gpt-5.6-sol`). Never silently downgrade. |
 | Reasoning | `high` for hard/precision lanes, `medium` for routine lanes (`-c model_reasoning_effort=high`) | `xhigh`/`max` only for an explicitly heavy lane (gnarly refactors, deep debugging, gate review); `low` for cheap read lanes. astra is frontier-tier, so medium/high carries most work. |
-| Sandbox | `--full-auto` for write lanes; `--sandbox read-only` for read/review lanes | Write lanes need to edit their claimed files. Only grant what the lane needs. |
+| Sandbox | `--approve-for-me` (alone, no `-s`) for write lanes; `--sandbox read-only` for read/review lanes | Write lanes need to edit their claimed files. Only grant what the lane needs. |
 | Working dir | `-C <lane dir>` | Anchor each lane in its claimed directory or worktree. |
 
 ### Spawn recipe (one lane)
 
 ```bash
-caffeinate -i codex exec --skip-git-repo-check --full-auto \
+caffeinate -i codex exec --skip-git-repo-check --approve-for-me \
   -C <LANE_DIR> \
   -m gpt-6-astra \
   -c model_reasoning_effort=high \
@@ -552,7 +554,7 @@ Fire it with `run_in_background: true`. The brief is the lane's **entire contrac
 
 - **Stagger the spawns** (2–5s apart): firing every lane's first model call simultaneously is a thundering herd. In a live 23-lane run, 2 lanes wedged on dead connections at startup and sat silent for 30 minutes. The stagger costs a minute; a zombie costs half an hour.
 - **Real ceiling ≈ 20 concurrent `codex exec` processes** — that's RAM + OpenAI rate limits, not orchestration. Beyond that, tier and queue.
-- **Tier the lanes**: quick read/explore lanes → `low`/`medium` read-only; standard write lanes → `high` full-auto; deep refactor / gnarly debugging / review-gate lanes → `max` (`xhigh` if you want a cheaper heavy tier). One model id for the whole fleet; the tier is the effort, not the model.
+- **Tier the lanes**: quick read/explore lanes → `low`/`medium` read-only; standard write lanes → `high` `--approve-for-me`; deep refactor / gnarly debugging / review-gate lanes → `max` (`xhigh` if you want a cheaper heavy tier). One model id for the whole fleet; the tier is the effort, not the model.
 - **Read lanes stay read-only**: give review/analysis lanes `--sandbox read-only` so they physically cannot edit. Escalate to a write lane if edits are needed — don't tell a read lane to patch.
 - **Liveness check from the surface side**: a codex lane whose log file hasn't grown for many minutes with zero tool calls is dead regardless of the process table. Respawn it with the same brief.
 - **Completions are claims, not evidence.** "Succeeded" from a lane means it *thinks* it's done. Run the lane's acceptance check yourself (targeted typecheck / lint / tests in its dir) before integrating.
