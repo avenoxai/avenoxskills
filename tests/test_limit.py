@@ -146,6 +146,35 @@ class LimitTests(unittest.TestCase):
         self.assertTrue(result['windows'][0]['expired'])
         self.assertIn('WINDOW EXPIRED', limit.render({'windows': [], 'warnings': []}, result))
 
+    def test_claude_redirect_handler_does_not_forward_bearer(self):
+        import urllib.error
+        with patch.object(limit, '_claude_token', return_value='synthetic-token'), \
+             patch.object(limit.urllib.request, 'build_opener') as build:
+            build.return_value.open.side_effect = urllib.error.HTTPError(
+                limit.CLAUDE_USAGE_URL, 302, 'redirect', {}, None)
+            live, reason = limit._fetch_claude_live_detailed()
+            self.assertIsNone(live)
+            self.assertIn('302', reason)
+            handler = build.call_args.args[0]
+            self.assertIsNone(handler.redirect_request(None, None, 302, '', {}, 'https://example.invalid/'))
+            self.assertNotIn('synthetic-token', reason)
+
+    def test_claude_rate_limit_is_unknown_not_full(self):
+        import urllib.error
+        with patch.object(limit, '_claude_token', return_value='synthetic-token'), \
+             patch.object(limit.urllib.request, 'build_opener') as build:
+            build.return_value.open.side_effect = urllib.error.HTTPError(
+                limit.CLAUDE_USAGE_URL, 429, 'limited', {}, None)
+            live, reason = limit._fetch_claude_live_detailed()
+            self.assertIsNone(live)
+            self.assertIn('NOT a quota reading', reason)
+
+    def test_claude_invalid_credentials_shape_is_unavailable(self):
+        from unittest.mock import mock_open
+        for data in ('[]', '{"claudeAiOauth": []}', '{"claudeAiOauth": 7}'):
+            with patch('builtins.open', mock_open(read_data=data)):
+                self.assertEqual(limit._claude_oauth(), {})
+
     def test_claude_bad_usage_values_do_not_crash(self):
         out = {'windows': [], 'warnings': []}
         limit._append_windows(out, {'five_hour': {'utilization': 'bad', 'resets_at': 3}})
