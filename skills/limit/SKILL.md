@@ -40,10 +40,26 @@ a job that dies mid-flight costs more than one that never started.
   in `~/.claude/.credentials.json` → optional `--claude-observation PATH` file →
   `~/.claude.json` cache (`cachedUsageUtilization`, only refreshed by an interactive
   `/usage` call, can be hours stale).
-- **Codex**: CodexBar's live snapshot (`%APPDATA%/CodexBar/codex-accounts/snapshots.json`
-  on Windows, `~/Library/Application Support/CodexBar/...` on macOS,
-  `~/.config/CodexBar/...` on Linux) → newest `rate_limits` record under
-  `~/.codex/sessions/**/*.jsonl`.
+- **Codex**: CodexBar's local cache: `%APPDATA%/CodexBar/codex-accounts/snapshots.json`
+  on Windows, `~/Library/Application Support/CodexBar/codex-account-snapshots.json`
+  on macOS (Swift Codable format), or `$XDG_CONFIG_HOME/CodexBar/codex-accounts/snapshots.json`
+  on Linux (`~/.config` by default, when a compatible writer exists). Then the
+  newest dated core `rate_limits` event in up to 40 recent files under
+  `$CODEX_HOME/sessions/**/*.jsonl` (`~/.codex` by default). File modification
+  time never stands in for measurement time. A malformed trailing line does
+  not erase the last valid event. A newer empty measurement remains unknown.
+
+CodexBar cache files are not live fetches. Older than 45 minutes, future-dated,
+undated, or expired measurements are unknown. `limitReached` sentinels contain
+no trustworthy per-window percentages and are shown as unknown. Multiple
+accounts require `--codex-account ID` using the ID from the local snapshot file;
+records from different accounts are never combined. An unavailable selected
+account does not fall through to unscoped session data. Session fallback cannot
+prove that an event belongs to the currently signed-in account.
+
+The Claude live path supports the credentials JSON file, not macOS Keychain-only
+credentials. In that case it falls back to observations/cache with a warning.
+The dashboard does not log tokens or follow authenticated HTTP redirects.
 
 ## `--claude-observation` file schema
 

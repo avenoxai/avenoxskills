@@ -10,15 +10,12 @@
            stale for hours -- this is SILENT unless we check the age and the
            window-expiry ourselves and say so out loud.
 
-  Codex  : first CodexBar's live snapshot
-           (Windows:  %APPDATA%/CodexBar/codex-accounts/snapshots.json
-            macOS:    ~/Library/Application Support/CodexBar/codex-accounts/snapshots.json
-            Linux:    ~/.config/CodexBar/codex-accounts/snapshots.json)
-           CodexBar polls usage continuously in the background, so this data
-           is minute-fresh. The record with the newest `updatedAt` wins.
-           Fallback: ~/.codex/sessions/**/*.jsonl -> the newest `rate_limits`
-           entry. That path is only written when `codex` actually runs, so it
-           can be days old.
+  Codex  : CodexBar's local snapshot cache, then dated core rate-limit
+           events under $CODEX_HOME/sessions (default ~/.codex/sessions).
+           macOS uses codex-account-snapshots.json; the Windows variant
+           uses codex-accounts/snapshots.json. Multiple cached accounts
+           require --codex-account; measurements are never combined.
+           Cache age is checked, not assumed fresh because the app exists.
 
 Usage: python limit.py [--json] [--color auto|always|never] [--claude-observation PATH]
 """
@@ -66,13 +63,43 @@ def _fmt_delta(seconds: float) -> str:
     return f"{minutes}m"
 
 
+def _number(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def _percent(value):
+    value = _number(value)
+    return value if value is not None and 0 <= value <= 100 else None
+
+
 def _parse_iso(value: str | None) -> float | None:
-    if not value:
+    if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value).timestamp()
-    except ValueError:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.timestamp() if parsed.tzinfo is not None else None
+    except (ValueError, OverflowError, OSError):
         return None
+
+
+def _iso_timestamp(value):
+    value = _number(value)
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(value, timezone.utc).isoformat()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _warn_age(out, stamp, label):
+    age = _now() - stamp if stamp is not None else None
+    out["age_minutes"] = round(age / 60) if age is not None else None
+    out["stale"] = age is None or age < 0 or age > CODEX_MAX_AGE_MIN * 60
+    if out["stale"]:
+        out["warnings"].append(f"{label} timestamp stale/invalid -- current quota is unknown")
 
 
 def read_claude_observation(path: str | None,
@@ -98,7 +125,7 @@ def read_claude_observation(path: str | None,
     if not isinstance(payload, dict):
         return None
     epoch = payload.get("epoch")
-    if not isinstance(epoch, (int, float)) or isinstance(epoch, bool):
+    if _number(epoch) is None:
         return None
     age = _now() - float(epoch)
     if age < 0 or age > max_age_min * 60:
@@ -110,7 +137,7 @@ def read_claude_observation(path: str | None,
         and not isinstance(payload[key], bool)
         and 0 <= payload[key] <= 100
     }
-    if not values or max(values.values()) <= 0:
+    if len(values) != 2 or max(values.values()) <= 0:
         return None
     resets = {
         f"{key}_reset": float(payload[f"{key}_reset"])
@@ -131,7 +158,9 @@ def _claude_oauth() -> dict:
         with open(
             os.path.expanduser("~/.claude/.credentials.json"), encoding="utf-8"
         ) as handle:
-            return (json.load(handle) or {}).get("claudeAiOauth") or {}
+            data = json.load(handle)
+            oauth = data.get("claudeAiOauth") if isinstance(data, dict) else None
+            return oauth if isinstance(oauth, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -169,6 +198,11 @@ def _fetch_claude_live_detailed() -> tuple[dict | None, str | None]:
     token = _claude_token()
     if not token:
         return None, "token missing or expired: run `claude auth login`"
+    # Never forward an OAuth Authorization header to a redirected origin.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
     request = urllib.request.Request(
         CLAUDE_USAGE_URL,
         headers={
@@ -178,10 +212,11 @@ def _fetch_claude_live_detailed() -> tuple[dict | None, str | None]:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=15) as response:
             if response.status != 200:
                 return None, f"endpoint returned HTTP {response.status}"
-            return json.loads(response.read().decode("utf-8")), None
+            data = json.loads(response.read().decode("utf-8"))
+            return (data, None) if isinstance(data, dict) else (None, "invalid usage response")
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             return None, f"token rejected (HTTP {exc.code}): run `claude auth login`"
@@ -203,11 +238,13 @@ def _fetch_claude_live_detailed() -> tuple[dict | None, str | None]:
             "a sandbox with network access disabled, Claude usage cannot be "
             "read live from there"
         )
-    except json.JSONDecodeError:
+    except (ValueError, UnicodeError):
         return None, "endpoint did not return valid JSON"
 
 
 def _append_windows(out: dict, utilization: dict) -> None:
+    if not isinstance(utilization, dict):
+        return
     # Known windows first in a fixed order, then any EXTRA window the
     # endpoint returns. Some plans add model-specific windows (e.g. a
     # weekly Opus window) and a fixed key list would silently swallow it --
@@ -232,7 +269,7 @@ def _append_windows(out: dict, utilization: dict) -> None:
         out["windows"].append(
             {
                 "name": label,
-                "used_percent": window["utilization"],
+                "used_percent": _percent(window["utilization"]),
                 "resets_at": window.get("resets_at"),
                 "resets_in": _fmt_delta(resets_ts - _now()) if resets_ts and not expired else None,
                 "expired": expired,
@@ -304,238 +341,172 @@ def read_claude(observation_path: str | None = None) -> dict:
         out["warnings"].append(f"could not read cache: {exc}")
         return out
 
-    cached = data.get("cachedUsageUtilization")
-    if not cached:
+    cached = data.get("cachedUsageUtilization") if isinstance(data, dict) else None
+    if not isinstance(cached, dict) or not cached:
         out["warnings"].append("no cachedUsageUtilization -- /usage may never have run")
         return out
 
-    fetched_ms = cached.get("fetchedAtMs")
-    if fetched_ms:
-        age_min = (_now() - fetched_ms / 1000) / 60
-        out["age_minutes"] = round(age_min)
-        if age_min > CLAUDE_MAX_AGE_MIN:
-            out["warnings"].append(
-                f"cache is {_fmt_delta(age_min * 60)} stale "
-                f"(threshold {CLAUDE_MAX_AGE_MIN}m) -- run /usage in an interactive session"
-            )
+    fetched_ms = _number(cached.get("fetchedAtMs"))
+    _warn_age(out, fetched_ms / 1000 if fetched_ms is not None else None, "Claude cache")
 
     _append_windows(out, cached.get("utilization") or {})
     return out
 
 
 def _codexbar_snapshot_paths() -> list[str]:
-    """Candidate CodexBar snapshot paths, checked in order, platform-first."""
-    appdata = os.environ.get("APPDATA")
     candidates = []
-    if appdata:
-        candidates.append(os.path.join(appdata, "CodexBar", "codex-accounts", "snapshots.json"))
-    candidates.append(os.path.expanduser(
-        "~/Library/Application Support/CodexBar/codex-accounts/snapshots.json"
-    ))
-    candidates.append(os.path.expanduser(
-        "~/.config/CodexBar/codex-accounts/snapshots.json"
-    ))
+    if os.environ.get("APPDATA"):
+        candidates.append(os.path.join(os.environ["APPDATA"], "CodexBar", "codex-accounts", "snapshots.json"))
+    candidates.extend([
+        os.path.expanduser("~/Library/Application Support/CodexBar/codex-account-snapshots.json"),
+        os.path.expanduser("~/Library/Application Support/CodexBar/codex-accounts/snapshots.json"),
+        os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+                     "CodexBar", "codex-accounts", "snapshots.json"),
+    ])
     return candidates
 
 
-def read_codexbar() -> dict | None:
-    """Read CodexBar's live snapshot -- the FRESHEST source for Codex.
+def read_codexbar(account: str | None = None) -> dict | None:
+    """Read supported CodexBar caches without combining account measurements.
 
-    CodexBar runs continuously in the tray polling usage and writes every
-    poll to `snapshots.json`. That is far fresher than session rollout
-    files, which are only written while `codex` is actually running.
-    Records are keyed by session id; the newest `updatedAt` wins.
-    Returns None if the app is not installed, and the rollout path is
-    tried instead.
+    The macOS Swift Codable format uses seconds since 2001-01-01; the
+    Windows snapshots map uses ISO dates. Neither file is a live API call.
     """
-    data = None
-    used_path = None
     for path in _codexbar_snapshot_paths():
         try:
             with open(path, encoding="utf-8") as handle:
-                data = (json.load(handle) or {}).get("snapshots") or {}
-            used_path = path
-            break
-        except (OSError, json.JSONDecodeError):
+                payload = json.load(handle)
+        except (OSError, ValueError):
             continue
-    if not data:
-        return None
-
-    # Two selections are made because CodexBar writes a SENTINEL when a
-    # limit is hit: a snapshot with `limitReached: true` reports BOTH
-    # windows at exactly 100, even if the weekly window is nowhere near
-    # full. The primary 100 is correct (it really is exhausted), but
-    # reusing the same record's secondary value would show every full
-    # 5-hour window as also killing the week. So the secondary value is
-    # read from the newest record that is NOT a sentinel.
-    newest, newest_ts = None, None
-    newest_ok, newest_ok_ts = None, None
-    for record in data.values():
+        if not isinstance(payload, dict):
+            continue
+        swift = isinstance(payload.get("records"), list) and payload.get("version") == 1
+        if swift:
+            records = {r["id"]: r for r in payload["records"]
+                       if isinstance(r, dict) and isinstance(r.get("id"), str)}
+        else:
+            records = payload.get("snapshots")
+        if not isinstance(records, dict) or not records:
+            continue
+        out = {"source": path, "windows": [], "warnings": []}
+        if account is None and len(records) > 1:
+            out["warnings"].append("multiple CodexBar accounts -- select --codex-account ID; current quota is unknown")
+            return out
+        record = records.get(account) if account is not None else next(iter(records.values()))
         if not isinstance(record, dict):
             continue
-        stamp = _parse_iso((record.get("updatedAt") or "").replace("Z", "+00:00"))
-        if stamp is None:
+        if record.get("limitReached"):
+            out["warnings"].append("limitReached sentinel is not a measured percentage; current windows are unknown")
+            return out
+        if record.get("error"):
+            out["warnings"].append("CodexBar fetch failed; current quota is unknown")
+            return out
+        source = record.get("snapshot") if swift else record
+        if not isinstance(source, dict):
             continue
-        if newest_ts is None or stamp > newest_ts:
-            newest, newest_ts = record, stamp
-        if not record.get("limitReached") and (newest_ok_ts is None or stamp > newest_ok_ts):
-            newest_ok, newest_ok_ts = record, stamp
-    if newest is None:
-        return None
-
-    out: dict = {
-        "source": used_path,
-        "windows": [],
-        "warnings": [],
-        "plan": newest.get("plan"),
-        "age_minutes": round((_now() - newest_ts) / 60),
-    }
-    if out["age_minutes"] > CODEX_MAX_AGE_MIN or out["age_minutes"] < 0:
-        out["warnings"].append("CodexBar snapshot is stale/invalid -- do not use for a quota decision")
-    if newest.get("limitReached"):
-        out["warnings"].append("limit FULL -- new requests will be rejected")
-    # secondaryWindow (the weekly quota) is shown alongside primaryWindow
-    # because primary alone (the fast-resetting window) is misleading on
-    # its own: it can read 12% while the week is already exhausted.
-    for key, name in (("primaryWindow", "primary"), ("secondaryWindow", "weekly")):
-        source = newest
-        if key == "secondaryWindow" and newest.get("limitReached") and newest_ok is not None:
-            source = newest_ok
-            out["warnings"].append(
-                "weekly percentage is from the last NON-sentinel measurement "
-                f"({_fmt_delta(_now() - newest_ok_ts)} ago) -- a limitReached "
-                "record reports both windows as 100, which is not valid for weekly"
-            )
-        window = source.get(key) or {}
-        if not window:
-            continue
-        resets_ts = _parse_iso((window.get("resetAt") or "").replace("Z", "+00:00"))
-        seconds = window.get("limitWindowSeconds") or 0
-        if seconds and seconds % 86400 == 0:
-            label = f"{name} ({seconds // 86400}-day)"
-        elif seconds:
-            label = f"{name} ({seconds // 3600}-hour)"
-        else:
-            label = name
-        expired = resets_ts is not None and resets_ts < _now()
-        out["windows"].append(
-            {
-                "name": label,
-                "used_percent": window.get("usedPercent"),
-                "resets_at": window.get("resetAt"),
-                "resets_in": _fmt_delta(resets_ts - _now()) if resets_ts and not expired else None,
-                "expired": expired,
-            }
-        )
-    return out if out["windows"] else None
+        stamp = source.get("updatedAt")
+        stamp = (_number(stamp) + 978307200 if _number(stamp) is not None else None) if swift else _parse_iso(stamp)
+        _warn_age(out, stamp, "CodexBar snapshot")
+        out["plan"] = None if swift else source.get("plan")
+        for key, label in (("primary" if swift else "primaryWindow", "primary"),
+                           ("secondary" if swift else "secondaryWindow", "weekly")):
+            window = source.get(key)
+            if not isinstance(window, dict):
+                continue
+            reset = window.get("resetsAt" if swift else "resetAt")
+            reset = (_number(reset) + 978307200 if _number(reset) is not None else None) if swift else _parse_iso(reset)
+            minutes = _number(window.get("windowMinutes")) if swift else _number(window.get("limitWindowSeconds"))
+            if minutes is not None and not swift:
+                minutes /= 60
+            _add_codex_window(out, label, window.get("usedPercent"), reset, minutes)
+        if out["windows"]:
+            if len(out["windows"]) < 2:
+                out["warnings"].append("one core window is missing -- full pool availability is unknown")
+            return out
+    return None
 
 
-def read_codex(scan_limit: int = 40) -> dict:
-    """Read Codex usage: CodexBar snapshot first, then session rollout files."""
-    fresh = read_codexbar()
-    if fresh is not None:
-        return fresh
-
-    root = os.path.expanduser("~/.codex/sessions")
-    out: dict = {"source": root, "windows": [], "warnings": []}
-    out["warnings"].append(
-        "CodexBar snapshot unreadable, fell back to session files (may be older)"
-    )
-
-    files = glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)
-    if not files:
-        out["warnings"].append("no session files -- codex has never been run")
+def read_codex(scan_limit: int = 40, account: str | None = None) -> dict:
+    """Read cache first, then the latest dated core-quota event in bounded rollouts."""
+    cached = read_codexbar(account)
+    if cached is not None:
+        return cached
+    root = os.path.join(os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex")), "sessions")
+    out = {"source": root, "windows": [], "warnings": []}
+    if account is not None:
+        out["warnings"].append("selected CodexBar account unavailable; unscoped session fallback disabled")
         return out
-    files.sort(key=os.path.getmtime, reverse=True)
-
-    def dig(node):
-        """Find the first `rate_limits` object in a nested structure."""
-        if isinstance(node, dict):
-            if "rate_limits" in node:
-                return node["rate_limits"]
-            for value in node.values():
-                found = dig(value)
-                if found is not None:
-                    return found
-        elif isinstance(node, list):
-            for value in node:
-                found = dig(value)
-                if found is not None:
-                    return found
-        return None
-
-    fallback = None
+    out["warnings"].append("CodexBar snapshot unreadable; using session measurements (active account not verified)")
+    files = glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)
+    # mtime bounds the search only; it must never determine measurement freshness.
+    def mtime(path):
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0
+    files.sort(key=mtime, reverse=True)
+    newest = None
+    undated = None
     for path in files[:scan_limit]:
-        newest = None
         try:
             with open(path, encoding="utf-8") as handle:
                 for line in handle:
-                    if "rate_limits" in line:
-                        newest = line
-        except OSError:
+                    if '"rate_limits"' not in line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(event, dict) or event.get("type") != "event_msg":
+                        continue
+                    payload = event.get("payload")
+                    if not isinstance(payload, dict) or payload.get("type") != "token_count":
+                        continue
+                    limits = payload.get("rate_limits")
+                    if not isinstance(limits, dict) or limits.get("limit_id") not in (None, "codex"):
+                        continue
+                    stamp = _parse_iso(event.get("timestamp"))
+                    if stamp is None:
+                        undated = (limits, None, path)
+                    elif newest is None or stamp >= newest[1]:
+                        newest = (limits, stamp, path)
+        except (OSError, UnicodeError):
             continue
-        if not newest:
-            continue
-        try:
-            limits = dig(json.loads(newest))
-        except json.JSONDecodeError:
-            continue
-        if not limits:
-            continue
-
-        age = _now() - os.path.getmtime(path)
-        if fallback is None:
-            fallback = (limits, age)
-        if limits.get("primary"):
-            _fill_codex(out, limits, age)
-            return out
-
-    # No non-empty record found: report the newest empty one instead of
-    # silently leaving a gap.
-    if fallback:
-        limits, age = fallback
-        _fill_codex(out, limits, age)
-        out["warnings"].append(
-            "limit fields came back empty -- quota exhausted, a free plan, "
-            "or no requests have been made yet"
-        )
-    else:
-        out["warnings"].append("no rate_limits entry found in any session file")
+    measurement = newest or undated
+    if measurement is None:
+        out["warnings"].append("no core rate_limits measurement found in scanned session files")
+        return out
+    limits, stamp, out["source"] = measurement
+    _warn_age(out, stamp, "Codex measurement")
+    _fill_codex(out, limits)
+    if len(out["windows"]) < 2:
+        out["warnings"].append("latest core rate_limits fields are missing/empty -- full pool availability is unknown")
     return out
 
 
-def _fill_codex(out: dict, limits: dict, age_seconds: float) -> None:
+def _add_codex_window(out, label, used, reset, minutes):
+    iso = _iso_timestamp(reset)
+    reset = reset if iso is not None else None
+    minutes = _number(minutes)
+    if minutes is not None and minutes > 0:
+        label += f" ({minutes / 1440:g}-day)" if minutes >= 1440 else f" ({minutes / 60:g}-hour)"
+    expired = reset is not None and reset <= _now()
+    if expired:
+        out["warnings"].append(f"{label} window expired -- current quota is unknown")
+    out["windows"].append({
+        "name": label, "used_percent": _percent(used), "resets_at": iso,
+        "resets_in": _fmt_delta(reset - _now()) if reset is not None and not expired else None,
+        "expired": expired,
+    })
+
+
+def _fill_codex(out: dict, limits: dict) -> None:
     out["plan"] = limits.get("plan_type")
-    out["age_minutes"] = round(age_seconds / 60)
-    if age_seconds > 24 * 3600:
-        out["warnings"].append(
-            f"most recent codex session was {_fmt_delta(age_seconds)} ago -- "
-            "data is that old, any usage in between is not visible here"
-        )
     for key, label in (("primary", "primary"), ("secondary", "weekly")):
         window = limits.get(key)
-        if not window:
-            continue
-        resets_ts = window.get("resets_at")
-        minutes = window.get("window_minutes") or 0
-        if minutes >= 1440:
-            name = f"{label} ({minutes // 1440}-day)"
-        else:
-            name = f"{label} ({minutes // 60}-hour)"
-        expired = bool(resets_ts and resets_ts < _now())
-        out["windows"].append(
-            {
-                "name": name,
-                "used_percent": window.get("used_percent"),
-                "resets_at": (
-                    datetime.fromtimestamp(resets_ts, timezone.utc).isoformat()
-                    if resets_ts
-                    else None
-                ),
-                "resets_in": _fmt_delta(resets_ts - _now()) if resets_ts and not expired else None,
-                "expired": expired,
-            }
-        )
+        if isinstance(window, dict):
+            _add_codex_window(out, label, window.get("used_percent"),
+                              _number(window.get("resets_at")), window.get("window_minutes"))
 
 
 def _bar(percent: float | None, width: int = 20) -> str:
@@ -585,7 +556,7 @@ def render(claude: dict, codex: dict, color: bool = False) -> str:
             tail = f"resets in: {window['resets_in']}" if window["resets_in"] else ""
             if window["expired"]:
                 tail = "WINDOW EXPIRED -- this number is not current"
-            band = _usage_color(percent, window["expired"])
+            band = _usage_color(percent, window["expired"] or block.get("stale", False))
             value = f"{shown}  [{_bar(percent)}]"
             lines.append(
                 f"  {window['name']:<22} {_paint(value, band, color)} "
@@ -613,9 +584,10 @@ def main(argv: list[str] | None = None) -> int:
         help="optional JSON snapshot of Claude usage written by your own statusline/hook "
              "(see SKILL.md for the schema); used when the live endpoint is unavailable",
     )
+    parser.add_argument("--codex-account", metavar="ID", help="select a CodexBar snapshot account ID when several exist")
     args = parser.parse_args(argv)
 
-    claude, codex = read_claude(args.claude_observation), read_codex()
+    claude, codex = read_claude(args.claude_observation), read_codex(account=args.codex_account)
     if args.json:
         print(json.dumps({"claude": claude, "codex": codex}, indent=2, ensure_ascii=False))
         return 0
