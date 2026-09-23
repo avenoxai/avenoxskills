@@ -34,6 +34,12 @@ an exhausted weekly window means the pool is exhausted. Keep a few percent in
 reserve for whatever must run at the end of a session (handoff notes, summaries):
 a job that dies mid-flight costs more than one that never started.
 
+A model-scoped line such as `Fable 7-day` (`model_windows` in `--json`) stops only
+that model and is **not** part of the pool's binding window: when it is full, move
+work off that model (e.g. Fable → Opus) and keep routing the pool as before. It
+appears only on plans that have one (Max) and only when the live call succeeds;
+its absence is not an error.
+
 ## Sources, in order
 
 - **Claude**: live `https://api.anthropic.com/api/oauth/usage` call using the token
@@ -77,9 +83,9 @@ minutes is ignored. All-zero values are treated as **unreadable**, not an empty 
 
 ## Limits
 
-- No per-model weekly windows for Claude (e.g. a Max-plan Opus-specific window) —
-  whatever extra windows the live endpoint returns are shown, but nothing is
-  synthesized if it doesn't return them.
+- Model-scoped Claude windows (e.g. Max's weekly Fable) come only from the live
+  endpoint's `limits` list. When the script falls back to the observation file or
+  the `~/.claude.json` cache they are not shown — those sources don't carry them.
 - CodexBar is optional; without it the script falls back to session rollout files,
   which are only written while `codex` is running and can be stale for days.
 - These are subscription usage windows (percent of a rolling quota), not token counts.

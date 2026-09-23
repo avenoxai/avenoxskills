@@ -22,6 +22,15 @@ def event(stamp, used=30, limit_id='codex', empty=False):
         'limit_id': limit_id, 'primary': None if empty else {'used_percent': used, 'window_minutes': 300, 'resets_at': NOW + 600}}}}
 
 
+def model_limit(name='Fable', percent=87, resets_at=None, **extra):
+    return {
+        'kind': 'weekly_scoped', 'group': 'weekly', 'percent': percent,
+        'resets_at': iso(NOW + 7 * 86400) if resets_at is None else resets_at,
+        'scope': {'model': {'id': None, 'display_name': name}, 'surface': None},
+        **extra,
+    }
+
+
 class LimitTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -179,6 +188,80 @@ class LimitTests(unittest.TestCase):
         out = {'windows': [], 'warnings': []}
         limit._append_windows(out, {'five_hour': {'utilization': 'bad', 'resets_at': 3}})
         self.assertIsNone(out['windows'][0]['used_percent'])
+
+    def test_model_windows_extracts_scoped_week(self):
+        windows = limit.model_windows({'limits': [model_limit()]})
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0]['name'], 'Fable 7-day')
+        self.assertEqual(windows[0]['model'], 'Fable')
+        self.assertEqual(windows[0]['used_percent'], 87.0)
+        self.assertFalse(windows[0]['expired'])
+        self.assertIsNotNone(windows[0]['resets_in'])
+
+    def test_model_windows_ignores_unscoped_entries(self):
+        limits = [
+            {'kind': 'session', 'group': 'session', 'percent': 15, 'scope': None},
+            {'kind': 'weekly_all', 'group': 'weekly', 'percent': 61, 'scope': None},
+        ]
+        self.assertEqual(limit.model_windows({'limits': limits}), [])
+
+    def test_model_windows_skips_malformed_limits(self):
+        scoped = {'scope': {'model': {'display_name': 'Fable'}}}
+        bad = [
+            None,
+            'not a dict',
+            {'scope': {'model': {}}, 'percent': 87},
+            {**scoped, 'scope': {'model': {'display_name': '  '}}},
+            {**scoped, 'percent': True},
+            {**scoped, 'percent': '87'},
+            {**scoped, 'percent': float('nan')},
+            {**scoped},
+        ]
+        for usage in ({}, {'limits': None}, {'limits': {}}, {'limits': 'bad'}):
+            self.assertEqual(limit.model_windows(usage), [])
+        self.assertEqual(limit.model_windows({'limits': bad}), [])
+        # A valid percentage with an unreadable reset is still shown, just without a reset time.
+        for reset in (NOW + 60, 'garbage'):
+            windows = limit.model_windows({'limits': [{**scoped, 'percent': 87, 'resets_at': reset}]})
+            self.assertEqual([(w['used_percent'], w['resets_at'], w['resets_in']) for w in windows],
+                             [(87.0, None, None)])
+
+    def test_model_windows_marks_past_reset_expired(self):
+        windows = limit.model_windows({'limits': [model_limit(resets_at=iso(NOW - 60))]})
+        self.assertTrue(windows[0]['expired'])
+        self.assertIsNone(windows[0]['resets_in'])
+
+    def test_read_claude_keeps_model_windows_out_of_pool(self):
+        live = {
+            'five_hour': {'utilization': 15, 'resets_at': iso(NOW + 3600)},
+            'seven_day': {'utilization': 61, 'resets_at': iso(NOW + 7 * 86400)},
+            'limits': [model_limit()],
+        }
+        with patch.object(limit, '_fetch_claude_live_detailed', return_value=(live, None)), \
+             patch.object(limit, '_claude_plan', return_value='max'), \
+             patch.object(limit, '_now', return_value=NOW):
+            result = limit.read_claude()
+        self.assertEqual([window['name'] for window in result['windows']], ['5-hour', '7-day'])
+        self.assertEqual([window['name'] for window in result['model_windows']], ['Fable 7-day'])
+        self.assertEqual(result['warnings'], [])
+
+        pro = dict(live)
+        del pro['limits']
+        with patch.object(limit, '_fetch_claude_live_detailed', return_value=(pro, None)), \
+             patch.object(limit, '_claude_plan', return_value='pro'), \
+             patch.object(limit, '_now', return_value=NOW):
+            pro_result = limit.read_claude()
+        self.assertEqual(pro_result['model_windows'], [])
+        self.assertEqual(pro_result['warnings'], [])
+
+    def test_render_model_window_and_legacy_codex_block(self):
+        model_window = limit.model_windows({'limits': [model_limit()]})[0]
+        output = limit.render(
+            {'windows': [], 'model_windows': [model_window], 'warnings': []},
+            {'windows': [], 'warnings': []},
+        )
+        self.assertIn('Fable 7-day', output)
+        self.assertIn('87%', output)
 
 
 if __name__ == '__main__':

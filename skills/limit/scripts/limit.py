@@ -277,6 +277,45 @@ def _append_windows(out: dict, utilization: dict) -> None:
         )
 
 
+def model_windows(usage: dict) -> list[dict]:
+    """Model-scoped windows from the live `limits` list (e.g. Max's weekly Fable).
+
+    Kept OUT of `windows` on purpose: a model-scoped window stops only that
+    model, so a caller taking the fullest window as the pool's binding one must
+    not see a full Fable week as a full Claude pool.
+
+    Only the live endpoint carries `limits`; the statusline payload and the
+    `~/.claude.json` cache do not. Plans without such a window (Pro) return an
+    empty list and add no warning -- absence is not an error.
+    """
+    items = usage.get("limits") if isinstance(usage, dict) else None
+    out: list[dict] = []
+    for item in items if isinstance(items, list) else ():
+        if not isinstance(item, dict):
+            continue
+        scope = item.get("scope")
+        model = scope.get("model") if isinstance(scope, dict) else None
+        name = model.get("display_name") if isinstance(model, dict) else None
+        percent = _number(item.get("percent"))
+        if not isinstance(name, str) or not name.strip() or percent is None:
+            continue
+        span = {"weekly": "7-day", "session": "5-hour"}.get(item.get("group"), "")
+        reset = item.get("resets_at") if isinstance(item.get("resets_at"), str) else None
+        resets_ts = _parse_iso(reset)
+        expired = resets_ts is not None and resets_ts < _now()
+        out.append(
+            {
+                "name": f"{name.strip()} {span}".strip(),
+                "model": name.strip(),
+                "used_percent": percent,
+                "resets_at": reset if resets_ts is not None else None,
+                "resets_in": _fmt_delta(resets_ts - _now()) if resets_ts and not expired else None,
+                "expired": expired,
+            }
+        )
+    return out
+
+
 def read_claude(observation_path: str | None = None) -> dict:
     """Read Claude usage: live API first, then observation file, then cache."""
     live, reason = _fetch_claude_live_detailed()
@@ -285,6 +324,7 @@ def read_claude(observation_path: str | None = None) -> dict:
         out: dict = {"source": CLAUDE_USAGE_URL, "windows": [], "warnings": []}
         out["plan"] = plan
         out["age_minutes"] = 0
+        out["model_windows"] = model_windows(live)
         _append_windows(out, live)
         if out["windows"]:
             return out
@@ -550,7 +590,7 @@ def render(claude: dict, codex: dict, color: bool = False) -> str:
 
         if not block["windows"]:
             lines.append(_paint("  no data", RED, color))
-        for window in block["windows"]:
+        for window in block["windows"] + block.get("model_windows", []):
             percent = window["used_percent"]
             shown = f"{percent:>3.0f}%" if percent is not None else "  ?"
             tail = f"resets in: {window['resets_in']}" if window["resets_in"] else ""
