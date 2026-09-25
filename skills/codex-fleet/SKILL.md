@@ -67,6 +67,16 @@ needs only Codex CLI and Git Bash.
 
 Reasoning levels available on `gpt-6-astra`: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. astra is a frontier-tier model, so `medium`/`high` is enough for most lanes; reserve `xhigh`/`max` for a lane whose brief justifies it. The model's own cache default is `medium`, so always pass the effort explicitly.
 
+**Generation-6 lineup.** All three tiers moved to generation 6; `-m` any of them:
+
+| Model | Successor of | Use it for |
+|---|---|---|
+| `gpt-6-astra` | `gpt-5.6-sol` as fleet default | **the default** — every lane unless the user names another model |
+| `gpt-6-sol` | `gpt-5.6-sol` | the sol tier, when the user asks for sol by name |
+| `gpt-6-luna` | `gpt-5.6-luna` | the cheap read tier — context gathering, inventory sweeps, mechanical edits against a verified spec |
+
+Smoke-verified 2026-09-26 on codex-cli 0.155.0: all three answer `codex exec -m <id>`, and an unknown `gpt-6-*` id is rejected with HTTP 400, so a green smoke means the id is real. The `gpt-5.6-sol` / `gpt-5.6-luna` ids are still served, but pin the generation-6 ids in new briefs.
+
 > **Fast tier is OFF by default — do not add it.** `-c service_tier=fast -c fast_default_opt_out=false` buys ~1.5× speed at ~2.5× rate cost. That trade is wrong for how this skill is used: everything here is background-first and parallel, so nobody is staring at a single lane's latency, and burning 2.5× rate on twenty lanes drains your limits for no wall-clock gain. Standard tier gives you the same quality plus rate-limit headroom. Every example in this file omits it deliberately. Opt in per-call only when a human is actively blocked on one foreground result — never for fleets, never as a global default.
 
 ---
