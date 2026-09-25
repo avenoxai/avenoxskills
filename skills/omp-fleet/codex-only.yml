@@ -26,16 +26,16 @@ retry:
 modelRoles:
   default: openai-codex/gpt-6-astra:high
   slow: openai-codex/gpt-6-astra:high
-  smol: openai-codex/gpt-5.6-luna:medium
+  smol: openai-codex/gpt-6-luna:medium
 
 # 3. Cheap subagents read, expensive subagents decide.
 #    The cheap tier measured 25x less per token, so recon roles go there and
 #    judgement roles stay on the strong model.
 task:
   agentModelOverrides:
-    scout: openai-codex/gpt-5.6-luna:medium
-    librarian: openai-codex/gpt-5.6-luna:medium
-    sonic: openai-codex/gpt-5.6-luna:medium
+    scout: openai-codex/gpt-6-luna:medium
+    librarian: openai-codex/gpt-6-luna:medium
+    sonic: openai-codex/gpt-6-luna:medium
     reviewer: openai-codex/gpt-6-astra:max
     security-reviewer: openai-codex/gpt-6-astra:max
     designer: openai-codex/gpt-6-astra:high

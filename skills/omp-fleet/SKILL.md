@@ -40,7 +40,7 @@ omp exec "your prompt"        # WRONG — no such subcommand
 |---|---|---|
 | Provider | **your own subscription, pinned** | never — see the provider lock below |
 | Executor model | `openai-codex/gpt-6-astra:high` (`:medium` for routine lanes) | `:xhigh`/`:max` only for an explicitly heavy lane; the model replaced `gpt-5.6-sol` on 2026-09-05 |
-| Recon model | `openai-codex/gpt-5.6-luna:medium` | switch to the executor model when the lane must *decide*, not just read |
+| Recon model | `openai-codex/gpt-6-luna:medium` | switch to the executor model when the lane must *decide*, not just read; replaced `gpt-5.6-luna` on 2026-09-26 |
 | Config overlay | `--config <skill dir>/codex-only.yml` | always pass it on unattended lanes |
 | Approvals | `--approval-mode yolo` | drop it if a human is watching and wants prompts |
 | Tools | **all of them, always** | never pass `--no-tools` / `--no-lsp` / `--no-skills` |
@@ -55,7 +55,7 @@ Model selector syntax is **`provider/model:thinking`** — e.g. `openai-codex/gp
 `omp` aggregates a *lot* of providers. Two of its defaults combine into a real hazard:
 
 - `retry.modelFallback` defaults to **`true`**, so a rate-limited or erroring lane can re-route mid-run.
-- Model ids **fuzzy-match**. Ask for a bare `gpt-5.6-sol` (or any bare id) and you may get OpenRouter's identically-named `openai/gpt-5.6-sol` — a *different, metered* route — instead of the one on your subscription.
+- Model ids **fuzzy-match**. Ask for a bare `gpt-6-sol` (or any bare id) and you may get OpenRouter's identically-named `openai/gpt-6-sol` — a *different, metered* route — instead of the one on your subscription.
 
 If you have any metered provider key configured (OpenRouter, OpenCode, a gateway), an unattended fleet can quietly spend real money outside your plan. Two independent guards — use both:
 
@@ -92,14 +92,14 @@ Measured on one machine, same prompt, same harness, both on the Codex subscripti
 | `gpt-5.6-sol` | **$5.00** | **$30.00** | ~$0.15 |
 | `gpt-5.6-luna` | **$0.20** | **$1.20** | ~$0.006 |
 
-**Exactly 25×** on both input and output. (Measured on `gpt-5.6-sol`, the executor model at the time; `gpt-6-astra` replaced it on 2026-09-05 and has not been re-measured here — treat the ratio as indicative, not exact.)
+**Exactly 25×** on both input and output. (Measured on the generation-5.6 pair. The generation-6 tiers — `gpt-6-astra` executor since 2026-09-05, `gpt-6-sol` and `gpt-6-luna` since 2026-09-26 — have not been re-measured here, so treat the ratio as indicative, not exact.)
 
 The number that matters more than the ratio: **omp sends ~30K input tokens of system prompt and tool schemas before your prompt even starts.** On the expensive tier that's ~$0.15 *per turn* just to say hello. Short prompts are not cheap prompts — model choice dominates completely.
 
 ### Tiering rule: cheap reads, expensive decides
 
-- **`luna`** — context gathering, file and symbol discovery, inventory sweeps, "where does X live", first-pass summarization, mechanical edits against a verified spec, and any high-fan-out recon where *you* will do the synthesis.
-- **`sol`** — architecture, review, security, ambiguity resolution, anything that writes to a shared branch, anything whose wrong answer costs more than the 25× saving.
+- **`luna`** (`gpt-6-luna`) — context gathering, file and symbol discovery, inventory sweeps, "where does X live", first-pass summarization, mechanical edits against a verified spec, and any high-fan-out recon where *you* will do the synthesis.
+- **the executor model** (`gpt-6-astra`, or `gpt-6-sol` when asked by name) — architecture, review, security, ambiguity resolution, anything that writes to a shared branch, anything whose wrong answer costs more than the 25× saving.
 
 Do not run a 20-lane recon sweep on the expensive tier. That is the mistake this table exists to prevent.
 
