@@ -85,7 +85,8 @@ Varies by skill; each `SKILL.md` states its own.
 
 - `codex-fleet` — Codex CLI 0.128+, authenticated. Uses bash recipes; Windows uses Git Bash. On Windows/Linux omit the
   macOS-only `caffeinate` prefix; the two macOS-only helpers, `caffeinate` and `sips`, have bundled
-  PowerShell replacements in `skills/codex-fleet/scripts/` that need `pwsh` 7+
+  PowerShell replacements in `skills/codex-fleet/scripts/` that need `pwsh` 7+. On Linux,
+  `systemd-inhibit` and ImageMagick (`magick`, or `convert` on v6) cover the same two needs
 - `omp-fleet` — `omp` (`@oh-my-pi/pi-coding-agent`), authenticated against a
   provider; budget ~0.5GB RAM per concurrent lane bare, ~1.7GB with a typical
   MCP set auto-discovered

@@ -35,14 +35,15 @@ If the user's request is "use codex to X" or "run codex on X", run `codex exec .
 
 Everything in this file is written as bash and assumes a Unix-shaped shell. That holds on
 macOS and Linux natively, and on Windows through Git Bash — `/tmp`, `~`, `find -mmin`,
-`2>/dev/null` and `$CODEX_HOME` all resolve there. Remove the macOS-only `caffeinate -i` prefix from each Windows spawn and start the sentinel below first. Linux users must also omit that prefix and supply their own sleep inhibitor if needed.
+`2>/dev/null` and `$CODEX_HOME` all resolve there. Remove the macOS-only `caffeinate -i` prefix from each Windows spawn and start the sentinel below first. On Linux, swap the prefix for `systemd-inhibit --what=idle:sleep` (see the Linux note under the spawn recipe).
 
-Two macOS binaries used below have no Windows equivalent. This skill ships replacements:
+Two macOS binaries used below have no Windows equivalent. This skill ships replacements for
+Windows; on Linux, standard tools cover both:
 
-| Need | macOS | Windows |
-|---|---|---|
-| Stop the machine sleeping mid-fleet | `caffeinate -i` | `scripts/Invoke-KeepAwake.ps1` |
-| Downscale / centre-crop a render | `sips -z` / `sips -c` | `scripts/Resize-Image.ps1` |
+| Need | macOS | Windows | Linux |
+|---|---|---|---|
+| Stop the machine sleeping mid-fleet | `caffeinate -i` | `scripts/Invoke-KeepAwake.ps1` | `systemd-inhibit --what=idle:sleep` |
+| Downscale / centre-crop a render | `sips -z` / `sips -c` | `scripts/Resize-Image.ps1` | `magick` (ImageMagick 7; `convert` on 6) |
 
 Both replacements are plain PowerShell against the .NET base library
 (`SetThreadExecutionState`, `System.Drawing`) — no install, no ImageMagick, no persistent
@@ -325,7 +326,7 @@ Popular sizes (use these unless there's a reason not to):
 | 4K portrait | `2160x3840` |
 | Auto | `auto` |
 
-Square is fastest. Don't ask for tiny output (e.g. `256x256`) — the tool will reject it (below min-pixels). Generate at a supported size and downscale with `sips` afterwards (Windows: `pwsh -NoProfile -File skills/codex-fleet/scripts/Resize-Image.ps1 -Path in.png -Out out.png -Width 512`).
+Square is fastest. Don't ask for tiny output (e.g. `256x256`) — the tool will reject it (below min-pixels). Generate at a supported size and downscale with `sips` afterwards (Windows: `pwsh -NoProfile -File skills/codex-fleet/scripts/Resize-Image.ps1 -Path in.png -Out out.png -Width 512`; Linux: `magick in.png -resize 512x512 out.png`, which keeps the aspect ratio; ImageMagick 6, still the packaged version on Ubuntu 24.04 and Debian 12, spells it `convert`).
 
 ### Quality (gpt-image-2)
 
@@ -462,7 +463,7 @@ python "$IMAGE_GEN" generate \
 | "I generated it but couldn't save to that path" | Codex refused `cp` because directive said "no drawing library" too strictly | Add `You MAY use shell commands (cp, mv) to relocate` to the directive |
 | Image saved but green/checker background instead of transparent | Expected — gpt-image-2 doesn't do native alpha. You asked for transparency. | Run the chroma-key helper at `~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py` |
 | Empty cache directory after run | Codex refused or errored silently | Check the log file (`/tmp/codex-X.log`) — image gen may have hit content policy or rate limit |
-| Wrong aspect ratio | Tool didn't honor exact dimensions | Re-prompt with one of the popular sizes (`1024x1024`, `1536x1024`, etc.); crop with `sips` if needed, or `scripts/Resize-Image.ps1 -Crop` on Windows |
+| Wrong aspect ratio | Tool didn't honor exact dimensions | Re-prompt with one of the popular sizes (`1024x1024`, `1536x1024`, etc.); crop with `sips` if needed, or `scripts/Resize-Image.ps1 -Crop` on Windows, or `magick in.png -resize 512x512^ -gravity center -extent 512x512 out.png` on Linux (`convert` on ImageMagick 6) |
 | Multiple assets in one prompt — only some land on disk | Codex generated all but only copied first | Split into separate `codex exec` calls (recommended). Don't use `n` for distinct assets — `n` is for variants of one prompt |
 | "size must be auto or WIDTHxHEIGHT, multiples of 16" error from CLI | Bad size for gpt-image-2 | Both edges must be multiples of 16, total pixels in [655,360 .. 8,294,400], aspect ≤ 3:1, max edge ≤ 3840 |
 | "transparent backgrounds are not supported in gpt-image-2" | Tried `--background transparent` with default model | Either chroma-key workflow, or `--model gpt-image-1.5 --background transparent --output-format png` (after user confirms) |
@@ -591,6 +592,18 @@ Fire it with `run_in_background: true`. The brief is the lane's **entire contrac
 > The sentinel prevents idle sleep, not explicit sleep or closing the lid (see [Microsoft documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate)).
 >
 > It prints `KEEPAWAKE_ON until=... pid=<PID>`. Kill that PID when the fleet is done, or let it expire.
+>
+> **Linux equivalent.** On systemd distributions, replace the `caffeinate -i` prefix with
+> `systemd-inhibit`. It works as a per-lane wrapper like `caffeinate`: the lock is held while
+> the wrapped command runs and released when it exits.
+>
+> ```bash
+> systemd-inhibit --what=idle:sleep --why="codex fleet lane" codex exec ...
+> ```
+>
+> `systemd-inhibit --list` shows the active locks. Like `caffeinate -i`, this does not keep a
+> laptop awake with the lid closed: logind ignores the lock for the lid switch by default
+> (`LidSwitchIgnoreInhibited=yes`). Distributions without systemd need their own inhibitor.
 
 ### Fleet patterns (3–20 lanes)
 
