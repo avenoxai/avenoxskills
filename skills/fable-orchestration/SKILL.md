@@ -80,8 +80,8 @@ Long briefs go in a file; the prompt points at the file.
 ## Codex lanes
 
 GPT lanes run through `codex exec` (recipe in [`codex-fleet`](../codex-fleet/SKILL.md)).
-That skill defaults to `gpt-6-astra`; under this policy pass `-m gpt-6.1-sol`
-for execution lanes and keep astra for second opinions. Effort: `medium` for
+Execution lanes run on `-m gpt-6.1-sol`, that skill's default; pass
+`-m gpt-6-astra` for second opinions and `-m gpt-6-luna` for bulk cleanup. Effort: `medium` for
 routine lanes, `high` for precision lanes, `xhigh` or `max` only for an
 explicitly heavy lane. When assigning fleet lanes, stamp the model per lane in
 the spec so the launch is mechanical and no routing decision happens at spawn

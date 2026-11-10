@@ -1,6 +1,6 @@
 ---
 name: codex-fleet
-description: Standalone Codex CLI runner + fleet orchestrator. Does THREE things and always EXECUTES them (never just describes): (1) general code tasks via `codex exec`, (2) high-quality image generation via Codex's built-in `gpt-image-2` tool, and (3) parallel multi-lane fleets — spawning many `codex exec` delegates at once with worktree isolation. Defaults locked: model `gpt-6-astra`, reasoning `high` for hard/precision lanes and `medium` for routine lanes (xhigh/max only for an explicitly heavy lane), `--skip-git-repo-check` always. For multiple independent jobs, fire them ALL in parallel — compute is not the constraint, throughput is. Triggers on: "use codex", "run codex", "codex exec", "imagegen", "generate image", "make image", "render this", "ask codex to ...", "have codex ...", "spawn a fleet", "parallel codex", any image-asset request (icons/sigils/banners/portraits/backgrounds/sprites/UI assets/mockups/photoreal/etc.), and any request to delegate code-level work to Codex.
+description: Standalone Codex CLI runner + fleet orchestrator. Does THREE things and always EXECUTES them (never just describes): (1) general code tasks via `codex exec`, (2) high-quality image generation via Codex's built-in `gpt-image-2` tool, and (3) parallel multi-lane fleets — spawning many `codex exec` delegates at once with worktree isolation. Defaults locked: model `gpt-6.1-sol` for code lanes (`gpt-6-astra` for image generation and second opinions), reasoning `high` for hard/precision lanes and `medium` for routine lanes (xhigh/max only for an explicitly heavy lane), `--skip-git-repo-check` always. For multiple independent jobs, fire them ALL in parallel — compute is not the constraint, throughput is. Triggers on: "use codex", "run codex", "codex exec", "imagegen", "generate image", "make image", "render this", "ask codex to ...", "have codex ...", "spawn a fleet", "parallel codex", any image-asset request (icons/sigils/banners/portraits/backgrounds/sprites/UI assets/mockups/photoreal/etc.), and any request to delegate code-level work to Codex.
 ---
 
 # Codex Fleet — Standalone Action Runner
@@ -57,7 +57,7 @@ needs only Codex CLI and Git Bash.
 
 | Setting | Value | When to override |
 |---|---|---|
-| Model | `gpt-6-astra` | `-m <model>` only if user specifies. History: gpt-5.5 → gpt-5.6-sol → gpt-6-astra (2026-09-05) |
+| Model | `gpt-6.1-sol` for code tasks | `gpt-6-astra` for image generation and second opinions; `gpt-6-luna` for bulk cleanup; otherwise `-m <model>` only if user specifies. History: gpt-5.5 → gpt-5.6-sol → gpt-6-astra (2026-09-05) → gpt-6.1-sol (2026-11-10) |
 | Reasoning effort | `high` for hard/precision lanes, `medium` for routine lanes | `xhigh`/`max` ONLY for an explicitly heavy lane ("use xhigh", "max reasoning", "deep"); `low` for cheap read lanes; `ultra` is opt-in because it enables OpenAI's automatic task delegation |
 | Service tier | **standard — fast is OFF** | see the note below; opt in per-call only |
 | Sandbox | `read-only` | `workspace-write` for edits; `danger-full-access` for image gen or network (ask first) |
@@ -65,15 +65,17 @@ needs only Codex CLI and Git Bash.
 | Stderr | suppressed (`2>/dev/null`) | only show when debugging |
 | `--color never` | recommended | when you need to grep stdout cleanly |
 
-Reasoning levels available on `gpt-6-astra`: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. astra is a frontier-tier model, so `medium`/`high` is enough for most lanes; reserve `xhigh`/`max` for a lane whose brief justifies it. The model's own cache default is `medium`, so always pass the effort explicitly.
+Reasoning levels available on `gpt-6.1-sol` and `gpt-6-astra`: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. `medium`/`high` is enough for most lanes; reserve `xhigh`/`max` for a lane whose brief justifies it. Sol's own cache default is `low` (astra's is `medium`), so always pass the effort explicitly.
 
-**Generation-6 lineup.** All three tiers moved to generation 6; `-m` any of them:
+**Briefing sol.** It follows the brief to the letter and adds nothing: write numbered steps, exact paths and commands, an acceptance check per step, and an out-of-scope list. Anything left unsaid will not happen. Open design questions get decided before the lane starts, or go to astra as a second opinion.
+
+**Generation-6 lineup.** `-m` any of them:
 
 | Model | Successor of | Use it for |
 |---|---|---|
-| `gpt-6-astra` | `gpt-5.6-sol` as fleet default | **the default** — every lane unless the user names another model |
+| `gpt-6-astra` | `gpt-5.6-sol` as fleet default | second opinions, out-of-the-box thinking, review lanes, and the agent model for image generation |
 | `gpt-6-sol` | `gpt-5.6-sol` | the sol tier, when the user asks for sol by name |
-| `gpt-6.1-sol` | `gpt-6-sol` | the strict executor — follows a detailed step-by-step brief to the letter; the execution-lane model under the [`fable-orchestration`](../fable-orchestration/SKILL.md) policy |
+| `gpt-6.1-sol` | `gpt-6-sol` | **the default for code lanes** — the strict executor, follows a detailed step-by-step brief to the letter (routing in [`fable-orchestration`](../fable-orchestration/SKILL.md)) |
 | `gpt-6-luna` | `gpt-5.6-luna` | the cheap read tier — context gathering, inventory sweeps, bulk data cleanup, mechanical edits against a verified spec |
 
 Smoke-verified 2026-09-26 on codex-cli 0.155.0 (`gpt-6.1-sol` on 0.167.0, 2026-11-10): each answers `codex exec -m <id>`, and an unknown `gpt-6-*` id is rejected with HTTP 400, so a green smoke means the id is real. The `gpt-5.6-sol` / `gpt-5.6-luna` ids are still served, but pin the generation-6 ids in new briefs.
@@ -88,7 +90,7 @@ Smoke-verified 2026-09-26 on codex-cli 0.155.0 (`gpt-6.1-sol` on 0.167.0, 2026-1
 
 ```bash
 codex exec --skip-git-repo-check \
-  -m gpt-6-astra \
+  -m gpt-6.1-sol \
   -c model_reasoning_effort=high \
   --sandbox read-only \
   "<PROMPT>" 2>/dev/null
@@ -113,7 +115,7 @@ Run any non-trivial codex task in the background. Don't block the main thread:
 
 ```
 Bash tool call:
-  command: codex exec --skip-git-repo-check -m gpt-6-astra \
+  command: codex exec --skip-git-repo-check -m gpt-6.1-sol \
            -c model_reasoning_effort=high \
            --sandbox read-only \
            "Review src/foo.ts for race conditions and report findings." 2>/dev/null
@@ -564,7 +566,7 @@ A **fleet** is N `codex exec` delegates working at once. Each lane is a plain ba
 
 | Setting | Default | Why |
 |---|---|---|
-| Model | `gpt-6-astra` (`-m gpt-6-astra`) | The fleet workhorse since 2026-09-05 (replaced `gpt-5.6-sol`). Never silently downgrade. |
+| Model | `gpt-6.1-sol` (`-m gpt-6.1-sol`) | The execution-lane model since 2026-11-10 (astra before that; astra stays for second-opinion and review lanes). Never silently downgrade. |
 | Reasoning | `high` for hard/precision lanes, `medium` for routine lanes (`-c model_reasoning_effort=high`) | `xhigh`/`max` only for an explicitly heavy lane (gnarly refactors, deep debugging, gate review); `low` for cheap read lanes. astra is frontier-tier, so medium/high carries most work. |
 | Sandbox | `--approve-for-me` (alone, no `-s`) for write lanes; `--sandbox read-only` for read/review lanes | Write lanes need to edit their claimed files. Only grant what the lane needs. |
 | Working dir | `-C <lane dir>` | Anchor each lane in its claimed directory or worktree. |
@@ -574,7 +576,7 @@ A **fleet** is N `codex exec` delegates working at once. Each lane is a plain ba
 ```bash
 caffeinate -i codex exec --skip-git-repo-check --approve-for-me \
   -C <LANE_DIR> \
-  -m gpt-6-astra \
+  -m gpt-6.1-sol \
   -c model_reasoning_effort=high \
   "<SELF-CONTAINED LANE BRIEF>" > /tmp/lane-A.log 2>&1
 ```
